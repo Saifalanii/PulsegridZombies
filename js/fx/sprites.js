@@ -1,0 +1,269 @@
+// LPC spritesheet loading, animation state, and blitting.
+//
+// Everything else in this game used to be drawn procedurally; now the characters are
+// real pixel art and this module owns every frame of it.
+//
+// SHEET GEOMETRY — verified by decoding the alpha channel of the actual PNGs on disk
+// (a per-row occupancy scan, not remembered from a spec). Two geometries are in play:
+//
+//   Standard sheets (`zombie_*.png`, `player_hero_alt.png`) — 832x3456, 13 columns of
+//   64x64 frames, 54 rows, laid out in the fixed LPC animation blocks below.
+//
+//   `player_hero.png` — 1152x4480. The top 3456px are the same 54 rows of 64x64 frames
+//   but in a 1152px-wide canvas (18 columns; only the first 13 carry art). The bottom
+//   1024px are 8 rows of *128x128* oversized frames, 9 columns, holding the big
+//   sword-swing animations — the only frames in the whole asset set where a weapon is
+//   actually visible in the character's hands. That is why the player uses this sheet
+//   and not the tidier alt one.
+//
+// Measured occupancy, both geometries:
+//   rows  0-3   spellcast   7 frames
+//   rows  4-7   thrust      8 frames   (zombie sheets carry a 9th; we use 8)
+//   rows  8-11  walk        9 frames
+//   rows 12-15  slash       6 frames
+//   rows 16-19  shoot      13 frames
+//   row  20     hurt        6 frames   ONE row, not four — non-directional, and it
+//                                      collapses to a prone body. LPC has no separate
+//                                      death animation; this IS the death animation.
+//   row  21     climb       6 frames
+//   rows 22-25  idle        2 frames
+//   rows 26-29  jump        5 frames
+//   rows 30-33  sit         3 frames
+//   rows 34-37  emote       3 frames
+//   rows 38-41  run         8 frames
+//   rows 42-45  combat idle 2 frames
+//   oversized @ y=3456      4 rows x 9 frames  big overhead sword slash
+//   oversized @ y=3968      4 rows x 6 frames  big sword backslash / half-slash
+//
+// Direction order within every 4-row block is up, left, down, right.
+
+export const FRAME = 64;
+export const BIG_FRAME = 128;
+
+export const DIR_UP = 0, DIR_LEFT = 1, DIR_DOWN = 2, DIR_RIGHT = 3;
+
+/**
+ * Animation clips. `row` is the first of `dirs` consecutive rows; a clip with dirs=1 is
+ * non-directional and always reads from that single row.
+ *
+ * `big` clips live in the oversized 128px region and are only present on the player
+ * sheet — sheets without it fall back (see resolveClip).
+ */
+export const CLIPS = {
+  idle:     { row: 22, frames: 2,  dirs: 4, fps: 2.2, loop: true },
+  walk:     { row: 8,  frames: 9,  dirs: 4, fps: 8,   loop: true },
+  slash:    { row: 12, frames: 6,  dirs: 4, fps: 12,  loop: false, hit: 0.55 },
+  thrust:   { row: 4,  frames: 8,  dirs: 4, fps: 12,  loop: false, hit: 0.5 },
+  shoot:    { row: 16, frames: 13, dirs: 4, fps: 20,  loop: false, hit: 0.72 },
+  spell:    { row: 0,  frames: 7,  dirs: 4, fps: 11,  loop: false, hit: 0.6 },
+  hurt:     { row: 20, frames: 6,  dirs: 1, fps: 9,   loop: false },
+  // The first three frames of the hurt row only: recoil and hunch, stopping short of
+  // the collapse. Taking a hit and dying share art in LPC, so the flinch has to be a
+  // truncation of the death or every scratch looks fatal.
+  flinch:   { row: 20, frames: 3,  dirs: 1, fps: 11,  loop: false },
+  // Oversized, player sheet only. There are two 4-direction blocks down here and they
+  // are NOT interchangeable:
+  //
+  //   y=3456, 9 frames — the weapon *carry*: the blade stays couched against the body
+  //                      and the legs cycle. It is a walk-with-sword pose, not a strike.
+  //   y=3968, 6 frames — the actual swing: the blade leaves the body and arcs through.
+  //
+  // Both were previously wired as if they were two different attacks, so the machete
+  // "attacked" by walking at things with the blade tucked in. Every strike now reads
+  // from the swing block; the carry block is exposed separately for locomotion.
+  swordcarry: { big: 3456, frames: 9, dirs: 4, fps: 8,  loop: true },
+  // Frame 0 of the carry, held. Standing still can't reuse `swordcarry` itself — that
+  // is a walk cycle, and looping it stationary marches the survivor on the spot.
+  swordstand: { big: 3456, frames: 1, dirs: 4, fps: 1,  loop: true },
+  bigslash:   { big: 3968, frames: 6, dirs: 4, fps: 15, loop: false, hit: 0.5 },
+  // Same swing art, wound down — a fire axe is the same motion carrying more mass.
+  bigchop:    { big: 3968, frames: 6, dirs: 4, fps: 9,  loop: false, hit: 0.58 },
+};
+
+/** Clips that fall back to a standard-geometry equivalent on sheets without big rows. */
+const BIG_FALLBACK = {
+  bigslash: 'slash', bigchop: 'slash', swordcarry: 'walk', swordstand: 'idle',
+};
+
+export class LpcSheet {
+  /**
+   * @param {string} src
+   * @param {object} [opts]
+   * @param {boolean} [opts.big]  sheet carries the oversized 128px region
+   */
+  constructor(src, opts = {}) {
+    this.ready = false;
+    this.big = !!opts.big;
+    this.src = src;
+    this.img = new Image();
+    this.img.onload = () => { this.ready = true; };
+    this.img.onerror = () => { console.warn('[sprites] failed to load', src); };
+    this.img.src = src;
+  }
+}
+
+/** Snap a movement/facing vector to the nearest of the 4 LPC cardinal directions. */
+export function dirFromVector(dx, dy) {
+  if (Math.abs(dx) > Math.abs(dy)) return dx >= 0 ? DIR_RIGHT : DIR_LEFT;
+  return dy >= 0 ? DIR_DOWN : DIR_UP;
+}
+
+/**
+ * Per-entity animation state. A plain object so it can live on a pooled entity and be
+ * reset in place — nothing here allocates after the pool is built.
+ */
+export function createAnim() {
+  return {
+    dir: DIR_DOWN,
+    clip: 'idle',
+    t: 0,           // seconds into the current clip
+    frame: 0,
+    locked: false,  // a one-shot clip is playing; locomotion must not override it
+    done: false,
+    fired: false,   // the clip's hit frame has already been actioned
+    speed: 1,       // clip playback rate multiplier
+    distAcc: 0,
+    idleT: 0,
+  };
+}
+
+export function resetAnim(a) {
+  a.dir = DIR_DOWN; a.clip = 'idle'; a.t = 0; a.frame = 0;
+  a.locked = false; a.done = false; a.fired = false; a.speed = 1;
+  a.distAcc = 0; a.idleT = 0;
+  // Cleared on reset so a loadout change can't leak a weapon pose into the next run.
+  a.walkClip = null; a.idleClip = null;
+}
+
+/**
+ * Start a one-shot clip. `duration` (seconds) stretches the clip to fit — this is how
+ * an attack animation is made to land exactly on the frame the damage is applied.
+ */
+export function playClip(a, clip, duration = 0, dir = -1) {
+  const def = CLIPS[clip];
+  if (!def) return;
+  a.clip = clip;
+  a.t = 0;
+  a.frame = 0;
+  a.done = false;
+  a.fired = false;
+  a.locked = !def.loop;
+  if (dir >= 0) a.dir = dir;
+  a.speed = duration > 0 ? (def.frames / def.fps) / duration : 1;
+}
+
+/** True once a playing one-shot has passed its designated contact frame. */
+export function clipHitReady(a) {
+  const def = CLIPS[a.clip];
+  if (!def || !def.hit || a.fired) return false;
+  const dur = (def.frames / def.fps) / a.speed;
+  if (a.t >= dur * def.hit) { a.fired = true; return true; }
+  return false;
+}
+
+/**
+ * Advance an anim. If a one-shot clip is locked in, only that clip advances; otherwise
+ * the walk/idle locomotion cycle is driven from the entity's velocity.
+ */
+export function updateAnim(a, dt, vx, vy) {
+  if (a.locked) {
+    const def = CLIPS[a.clip];
+    a.t += dt * a.speed;
+    const per = 1 / def.fps;
+    const f = Math.floor(a.t / per);
+    if (f >= def.frames) {
+      a.frame = def.frames - 1;
+      a.done = true;
+      a.locked = false;
+      a.clip = a.idleClip || 'idle';
+      a.t = 0;
+    } else {
+      a.frame = f;
+    }
+    return;
+  }
+
+  // Locomotion clips are overridable so a survivor holding a blade keeps holding it
+  // while walking. The bare `walk`/`idle` rows draw the body only — the weapon lives
+  // in the oversized carry block — so without this the machete vanishes between swings.
+  const walkClip = a.walkClip || 'walk';
+  const idleClip = a.idleClip || 'idle';
+
+  const speed = Math.hypot(vx, vy);
+  if (speed > 8) {
+    a.dir = dirFromVector(vx, vy);
+    a.clip = walkClip;
+    // Distance-driven so the cadence matches the actual movement instead of sliding.
+    a.distAcc += speed * dt;
+    const STEP = 13;
+    const nFrames = CLIPS[walkClip].frames;
+    if (a.distAcc >= STEP) {
+      const steps = Math.floor(a.distAcc / STEP);
+      a.frame = (a.frame + steps) % nFrames;
+      a.distAcc -= steps * STEP;
+    }
+    if (a.frame >= nFrames) a.frame = 0;
+  } else {
+    a.clip = idleClip;
+    a.idleT += dt;
+    a.frame = Math.floor(a.idleT * CLIPS[idleClip].fps) % CLIPS[idleClip].frames;
+  }
+}
+
+/** Advance a death/corpse anim that has no owning entity velocity. */
+export function updateClipOnly(a, dt) {
+  const def = CLIPS[a.clip];
+  if (!def) return;
+  a.t += dt * a.speed;
+  const f = Math.floor(a.t * def.fps);
+  if (f >= def.frames) { a.frame = def.frames - 1; a.done = true; }
+  else a.frame = f;
+}
+
+function resolveClip(sheet, clip) {
+  const def = CLIPS[clip];
+  if (def && def.big && !sheet.big) return CLIPS[BIG_FALLBACK[clip]] || CLIPS.slash;
+  return def || CLIPS.idle;
+}
+
+/**
+ * Draw one animation frame.
+ *
+ * `size` is the world height of a *standard* 64px frame. Oversized 128px frames are
+ * drawn at 2x that around the same centre, which is exactly how LPC composes them — the
+ * character body sits in the middle 64x64 of the 128x128 cell and the extra margin is
+ * pure weapon swing.
+ *
+ * The sprite is anchored so the character's feet land slightly below (x, y): the entity
+ * position is its footprint on the ground, not the centre of its bounding box, which is
+ * what makes a character read as standing *on* a tile rather than floating over it.
+ *
+ * @returns {boolean} false if the sheet hasn't decoded yet.
+ */
+export function drawAnim(ctx, sheet, a, x, y, size, alpha = 1, filter = null) {
+  if (!sheet.ready) return false;
+  const def = resolveClip(sheet, a.clip);
+  const frame = Math.min(a.frame, def.frames - 1);
+  const dir = def.dirs === 1 ? 0 : a.dir;
+
+  const prevAlpha = ctx.globalAlpha;
+  if (alpha !== 1) ctx.globalAlpha = prevAlpha * alpha;
+  if (filter) ctx.filter = filter;
+
+  if (def.big) {
+    const F = BIG_FRAME;
+    const d = size * 2;
+    ctx.drawImage(sheet.img,
+      frame * F, def.big + dir * F, F, F,
+      x - d / 2, y - size * 0.86 - size / 2, d, d);
+  } else {
+    const F = FRAME;
+    ctx.drawImage(sheet.img,
+      frame * F, (def.row + dir) * F, F, F,
+      x - size / 2, y - size * 0.86, size, size);
+  }
+
+  if (filter) ctx.filter = 'none';
+  if (alpha !== 1) ctx.globalAlpha = prevAlpha;
+  return true;
+}

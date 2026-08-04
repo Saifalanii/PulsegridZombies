@@ -1,0 +1,40 @@
+{
+  "name": "Nightfall Village",
+  "short_name": "Nightfall",
+  "description": "Top-down zombie survival. Hold a dark village until morning. One deterministic run a night, shared by everyone.",
+  "id": "/nightfall-village/",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#04070d",
+  "theme_color": "#04070d",
+  "categories": ["games", "entertainment"],
+  "lang": "en",
+  "dir": "ltr",
+  "prefer_related_applications": false,
+  "icons": [
+    { "src": "icons/favicon-64.png", "sizes": "64x64", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "Tonight",
+      "short_name": "Tonight",
+      "description": "Go straight out into tonight's seeded village",
+      "url": "./?mode=daily",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Practice Night",
+      "short_name": "Practice",
+      "description": "Unseeded village, no streak at stake",
+      "url": "./?mode=practice",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
