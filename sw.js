@@ -97,6 +97,23 @@ const SHELL = [
   // loads them any more, so caching them would be a pure download cost.
   './assets/city/simple-city-32.png',
   './assets/tiles/CHAINLINK A - NIGHT.png',
+  // The sword swings are small (170KB each) and they are combat feedback, so they do
+  // belong in the atomic install — a silent weapon offline is a broken weapon.
+  './assets/audio/sword-1a.wav',
+  './assets/audio/sword-1b.wav',
+
+  // --- music ---
+  //
+  // Deliberately NOT in this list, despite being real assets the game loads:
+  // assets/audio/menu-theme.wav and assets/audio/run-theme.ogg are 6MB together, nearly
+  // triple the rest of the shell. addAll is atomic, so folding them in means a flaky
+  // mobile connection fails the *entire* install and the game gets no offline cache at
+  // all — trading a working offline game for background music is the wrong way round.
+  // They are picked up by the runtime cache in the fetch handler below the first time
+  // they play, so offline works from the second launch onward.
+  //
+  // If they are ever encoded down (the .wav in particular is uncompressed 48kHz stereo
+  // and would lose ~90% of its size as .ogg), move them up into this list.
   './assets/tiles/CHAINLINK B - NIGHT.png',
   './assets/tiles/STORM DRAIN - NIGHT.png',
 ];

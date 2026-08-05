@@ -108,6 +108,64 @@ const SHOOT_STYLES = {
   },
 };
 
+/**
+ * Composed music tracks, streamed from disk and looped.
+ *
+ * These are the first sounds in the game that aren't synthesised at runtime. They ride a
+ * bus of their own rather than `musicBus`, for a reason that is easy to trip over:
+ * musicBus is held at gain 0 until `startMusic()` fades it up for a run, so anything
+ * routed through it is inaudible on the menu, and `stopMusic()` would drag a track down
+ * with the ambience. They also skip the shared reverb send — that convolver exists to put
+ * the *effects* in one room, and running a finished mix through it only smears it.
+ */
+const TRACKS = {
+  menu: 'assets/audio/menu-theme.wav',
+  run: 'assets/audio/run-theme.ogg',
+};
+
+/** Seconds of tail folded back over the head of a loop. See loopSeam below. */
+const LOOP_XFADE = 0.02;
+
+/**
+ * Recorded one-shots. Everything else in this file is synthesised; these are not.
+ *
+ * Only the *player's* melee swing uses them. `swing()` is also what a zombie's wind-up
+ * plays, and routing that through here would arm every shambler on the street with a
+ * sword — hence a separate call rather than a replacement.
+ */
+const SAMPLES = {
+  sword_a: 'assets/audio/sword-1a.wav',
+  sword_b: 'assets/audio/sword-1b.wav',
+};
+
+/**
+ * Make a buffer loop without a click.
+ *
+ * An AudioBufferSourceNode with `loop = true` jumps from the last sample straight to the
+ * first, and if those two don't line up the discontinuity is a click every time round.
+ * The menu track ends mid-waveform at about a third of its peak amplitude, which is
+ * audible. Folding the last few milliseconds back over the first few with an equal-power
+ * crossfade removes it, at the cost of shortening the loop by LOOP_XFADE — 20ms out of
+ * twenty seconds, which no one can hear.
+ */
+function loopSeam(ctx, buf) {
+  const fade = Math.min(Math.floor(ctx.sampleRate * LOOP_XFADE), buf.length >> 2);
+  if (fade < 8) return buf;
+  const out = ctx.createBuffer(buf.numberOfChannels, buf.length - fade, buf.sampleRate);
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const src = buf.getChannelData(c);
+    const dst = out.getChannelData(c);
+    dst.set(src.subarray(0, out.length));
+    for (let i = 0; i < fade; i++) {
+      // Equal power, so the sum holds a constant level through the join instead of
+      // dipping the way a linear crossfade would.
+      const t = i / fade;
+      dst[i] = src[i] * Math.sin(t * Math.PI / 2) + src[buf.length - fade + i] * Math.cos(t * Math.PI / 2);
+    }
+  }
+  return out;
+}
+
 export class AudioEngine {
   constructor() {
     this.ctx = null;
@@ -131,6 +189,16 @@ export class AudioEngine {
     this._nextDriftTime = 0;
     this._lastEvent = '';
     this._stepFoot = 0;
+    this._sampleBufs = new Map();  // name -> decoded AudioBuffer, see SAMPLES
+    this._swingFlip = 0;           // alternates the two sword takes
+    // -Infinity, not 0: ctx.currentTime starts near zero, so a 0 default makes the
+    // limiter in swordSwing() treat the first swing of the context as a duplicate of a
+    // swing that never happened, and eat it.
+    this._lastSwingAt = -Infinity;
+    this._trackBufs = new Map();   // name -> decoded, seam-fixed AudioBuffer
+    this._trackSrc = null;         // the playing source, if any
+    this._trackName = null;        // what _trackSrc is playing
+    this._trackWanted = null;      // what we've been asked to play; guards async decodes
   }
 
   /** Safe to call repeatedly; only the first user gesture actually resumes. */
@@ -160,7 +228,7 @@ export class AudioEngine {
     // tick can get silently dropped. A one-sample inaudible blip forces the graph
     // to genuinely start, so volume settings applied right after this actually
     // take effect — instead of needing a manual mute/unmute to "wake" it.
-    if (this.unlocked) this._primeOutput();
+    if (this.unlocked) { this._primeOutput(); this._preloadSamples(); }
 
     this._unlockAttempts = (this._unlockAttempts || 0) + (this.unlocked ? 0 : 1);
     return this.unlocked;
@@ -238,6 +306,11 @@ export class AudioEngine {
     this.verbGain = ctx.createGain();
     this.verbGain.gain.value = 0.22;
 
+    // Composed tracks — straight to the limiter, no reverb send. See TRACKS.
+    this.trackBus = ctx.createGain();
+    this.trackBus.gain.value = 0;
+    this.trackBus.connect(this.comp);
+
     this.sfxBus.connect(this.comp);
     this.musicBus.connect(this.comp);
     this.sfxBus.connect(this.verb);
@@ -283,6 +356,127 @@ export class AudioEngine {
   setMusicVolume(v) {
     this.musicVol = v;
     if (this.musicBus && this._playing) this.musicBus.gain.setTargetAtTime(v, this.ctx.currentTime, 0.1);
+    if (this.trackBus && this._trackSrc) this.trackBus.gain.setTargetAtTime(v, this.ctx.currentTime, 0.1);
+  }
+
+  // ---------------------------------------------------------------- samples
+
+  /**
+   * Decode the recorded one-shots up front.
+   *
+   * Called on unlock rather than on first use: these are combat sounds, and a lazily
+   * decoded sample means the very first swing of a run is silent — the one swing where
+   * the player is deciding whether the weapon feels like it connects.
+   */
+  async _preloadSamples() {
+    for (const [name, url] of Object.entries(SAMPLES)) {
+      if (this._sampleBufs.has(name)) continue;
+      try {
+        const res = await fetch(url);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        this._sampleBufs.set(name, await this.ctx.decodeAudioData(await res.arrayBuffer()));
+      } catch (e) {
+        console.warn('[audio] could not load sample', name, e);
+      }
+    }
+  }
+
+  /** One-shot a decoded sample on the SFX bus. */
+  _playSample(name, { gain = 1, rate = 1 } = {}) {
+    const buf = this._sampleBufs.get(name);
+    if (!this.ready || !buf) return false;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.playbackRate.value = rate;
+    const g = this.ctx.createGain();
+    g.gain.value = gain;
+    src.connect(g); g.connect(this.sfxBus);
+    src.start();
+    return true;
+  }
+
+  /**
+   * The player's melee swing.
+   *
+   * Alternates the two takes and nudges the playback rate a little each time. Two
+   * recorded swings played straight become obviously two recorded swings within about
+   * fifteen seconds of a machete build, which attacks roughly twice a second.
+   *
+   * Falls back to the synthesised swing if the samples haven't decoded — losing the
+   * weapon's sound entirely is far worse than a swing that sounds like the old one.
+   */
+  swordSwing(p = 1) {
+    if (!this.ready) return;
+    const now = this.ctx.currentTime;
+    // Overlapping copies of the same transient stack into a click rather than reading as
+    // faster attacks, so a very high attack rate drops the extras.
+    if (now - this._lastSwingAt < 0.05) return;
+    this._lastSwingAt = now;
+    const name = (this._swingFlip++ & 1) ? 'sword_b' : 'sword_a';
+    const rate = 0.94 + Math.random() * 0.12;
+    if (!this._playSample(name, { gain: 0.9 * p, rate })) this.swing(p);
+  }
+
+  // ---------------------------------------------------------------- tracks
+
+  /**
+   * Loop a composed track, crossfading from whatever is already playing.
+   *
+   * Safe to call every frame with the same name — a repeat call for the track already
+   * playing does nothing. Decoding is async and the player can leave the menu while it
+   * runs, so `_trackWanted` is re-checked on the far side of the await; without that,
+   * tapping Play during the decode starts the menu music underneath the run.
+   */
+  async playTrack(name, fade = 1.2) {
+    if (!this.ready || !TRACKS[name]) return;
+    if (this._trackName === name) return;
+    this._trackWanted = name;
+
+    let buf = this._trackBufs.get(name);
+    if (!buf) {
+      try {
+        const res = await fetch(TRACKS[name]);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const raw = await this.ctx.decodeAudioData(await res.arrayBuffer());
+        buf = loopSeam(this.ctx, raw);
+        this._trackBufs.set(name, buf);
+      } catch (e) {
+        console.warn('[audio] could not load track', name, e);
+        return;
+      }
+    }
+    // The world may have moved on while that was in flight.
+    if (this._trackWanted !== name || !this.ready) return;
+
+    this._stopTrackSource(0.35);
+    const src = this.ctx.createBufferSource();
+    src.buffer = buf;
+    src.loop = true;
+    src.connect(this.trackBus);
+    const t = this.ctx.currentTime;
+    this.trackBus.gain.cancelScheduledValues(t);
+    this.trackBus.gain.setValueAtTime(Math.max(0.0001, this.trackBus.gain.value), t);
+    this.trackBus.gain.linearRampToValueAtTime(this.musicVol, t + fade);
+    src.start();
+    this._trackSrc = src;
+    this._trackName = name;
+  }
+
+  stopTrack(fade = 1.0) {
+    this._trackWanted = null;
+    this._stopTrackSource(fade);
+  }
+
+  _stopTrackSource(fade) {
+    if (!this._trackSrc) return;
+    const src = this._trackSrc;
+    const t = this.ctx.currentTime;
+    this.trackBus.gain.cancelScheduledValues(t);
+    this.trackBus.gain.setValueAtTime(Math.max(0.0001, this.trackBus.gain.value), t);
+    this.trackBus.gain.linearRampToValueAtTime(0.0001, t + fade);
+    try { src.stop(t + fade + 0.05); } catch { /* already stopped */ }
+    this._trackSrc = null;
+    this._trackName = null;
   }
 
   // ---------------------------------------------------------------- voices

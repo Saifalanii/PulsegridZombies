@@ -12,7 +12,7 @@
 // snapping — the same easing discipline as the rest of the juice layer.
 
 import { TAU, clamp, damp } from '../core/math.js';
-import { PORTRAIT_SHEET, drawPortraitHead } from './sprites.js';
+import { PORTRAIT_SHEET, ZOMBIE_PORTRAIT_SHEET, drawPortraitHead } from './sprites.js';
 
 const VOID = 'rgba(3,6,11,0.94)';
 
@@ -282,13 +282,18 @@ export class Portrait {
 
     // HOLT/MAREN/BRIAR draw the real LPC head — one character sheet, three survivors, so
     // the shape+colour ring above is what still tells them apart at a glance. THE BAND
-    // has no sprite and is written to never be seen ("Voice on the emergency channel"),
-    // so it keeps the abstract procedural face — that was never standing in for missing
-    // art, it's the correct portrait for a voice on a radio.
-    if (this.def.sprite && PORTRAIT_SHEET.ready) {
+    // draws a zombie head from the rotting sheet: `sprite: 'zombie'` picks the sheet,
+    // `sprite: true` keeps the survivor one.
+    //
+    // The abstract eyes-in-a-shape face is still here and still reachable for any def
+    // with no sprite at all. It is not a placeholder — it is what an enemy portrait falls
+    // back to, and EYE_STYLES carries a whole roster of expressions for exactly that.
+    const sheet = this.def.sprite === 'zombie' ? ZOMBIE_PORTRAIT_SHEET
+                : this.def.sprite ? PORTRAIT_SHEET : null;
+    if (sheet && sheet.ready) {
       const prevSmooth = ctx.imageSmoothingEnabled;
       ctx.imageSmoothingEnabled = false;
-      drawPortraitHead(ctx, PORTRAIT_SHEET, cx, cy + R * 0.06, R * 1.5);
+      drawPortraitHead(ctx, sheet, cx, cy + R * 0.06, R * 1.5);
       ctx.imageSmoothingEnabled = prevSmooth;
     } else {
       this.face.draw(ctx, cx, cy, R * 1.55, this.def.pupilRgb || [255, 255, 255]);

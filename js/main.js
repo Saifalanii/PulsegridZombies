@@ -356,6 +356,7 @@ class Game {
     this._trackFps(dt);
 
     audio.update(dt);
+    this._syncTrack();
     const simDt = juice.update(dt);
 
     const active = this.state === S_PLAYING ? this.run
@@ -391,6 +392,29 @@ class Game {
 
     this.ui.updatePortraits(dt);
     this._render(active, dt);
+  }
+
+  /**
+   * Keep the looping track in step with what screen we're on.
+   *
+   * Driven from the frame loop rather than from each transition on purpose: menus are
+   * entered from a dozen places (back buttons, the results screen, abandoning a run, the
+   * manifest shortcut) and wiring a call into every one of them is how you end up with
+   * the menu theme still playing under a run. audio.playTrack() is idempotent for the
+   * track already playing, so calling it every frame costs a string compare.
+   *
+   * The results screen deliberately gets silence: the run's ambience is fading out under
+   * it, and dropping a menu loop on top of that steps on the ending.
+   */
+  _syncTrack() {
+    if (!audio.ready) return;
+    const s = this.state;
+    const want = s === S_MENU ? 'menu'
+               : (s === S_PLAYING || s === S_LEVELUP || s === S_PAUSED) ? 'run'
+               : null;
+    if (want === this._track) return;
+    this._track = want;
+    if (want) audio.playTrack(want); else audio.stopTrack();
   }
 
   _updateAmbient(dt) {
