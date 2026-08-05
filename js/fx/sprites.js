@@ -158,6 +158,16 @@ export class LpcSheet {
 export const PORTRAIT_SHEET = new LpcSheet('assets/characters/player_hero_alt.png');
 
 /**
+ * The zombie head used for THE BAND's portrait.
+ *
+ * The rotting sheet rather than the plain green one: at a 28px crop the green zombie
+ * reads as a person with an unusual complexion, while this one has enough broken
+ * silhouette around the jaw to be unmistakable at portrait size. Same standard LPC
+ * geometry as every other sheet, so PORTRAIT_HEAD indexes it unchanged.
+ */
+export const ZOMBIE_PORTRAIT_SHEET = new LpcSheet('assets/characters/zombie_rotting.png');
+
+/**
  * Draw the portrait head (see PORTRAIT_HEAD) centred at (cx, cy), scaled so its width
  * fills `targetW` CSS px. Caller is responsible for imageSmoothingEnabled = false —
  * portraits share a canvas with other UI that may want smoothing on.

@@ -4,8 +4,9 @@ Nightfall Village uses third-party pixel art. **Attribution is a licence conditi
 courtesy.** If you fork, redistribute or deploy this project, this file must travel with
 it and the in-game credit line must stay visible.
 
-Everything else — all code, every sound (synthesised at runtime with Web Audio), and the
-generated icon set — is original to this project.
+Everything else — all code, the procedural sound engine (ambience, weapons and UI, all
+synthesised at runtime with Web Audio), and the generated icon set — is original to this
+project. The recorded music and the sword swings are not; see below.
 
 ---
 
@@ -131,6 +132,30 @@ A vehicle pack by **@MinZiin_** (<https://minzinn.itch.io/>, CC-BY 4.0) was eval
 the wrecked cars and then dropped — its style did not sit with this sheet, and mixing the
 two was rejected deliberately. No files from it remain in the repository. If it is ever
 reinstated, that licence requires an attribution line here.
+
+---
+
+## Audio — music and sword swings
+
+Files:
+
+- `assets/audio/menu-theme.wav` — loops on the main menu (20.6s)
+- `assets/audio/run-theme.ogg` — loops during a run (2m 20s)
+- `assets/audio/sword-1a.wav`, `assets/audio/sword-1b.wav` — the player's melee swing
+
+Until these were added, every sound in the game was synthesised at runtime and the project
+shipped no audio files at all. These four are recordings, and they arrived without a
+licence file or artist name — the same position as the tilesets above, and the same
+warning applies.
+
+Whoever obtained them must record the source and licence here before this project is
+redistributed. The originals were named `b423b42.wav`, `S31-Sewer Nightclub.ogg` and
+`sword-1a/1b.wav`, which may help trace them.
+
+Note for whoever picks this up: the music is deliberately **not** in the service worker's
+install list (see the comment in `sw.js`). At 6MB it would nearly triple the offline
+shell, and `addAll` is atomic, so a failed music download would cost the player the
+entire offline cache. The sword swings are small and are included.
 
 ---
 

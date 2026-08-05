@@ -541,7 +541,8 @@ export class Run {
     p.atkT = dur;
     p.atkFired = false;
     p.fireCd = this.fireInterval;
-    if (this.melee) audio.swing(); else audio.shoot(1);
+    // Recorded swing for the player only — audio.swing() is also the zombies' wind-up.
+    if (this.melee) audio.swordSwing(); else audio.shoot(1);
   }
 
   /** Nearest enemy inside engagement range; elites get a distance discount. */

@@ -66,6 +66,10 @@ export const coreFor = (weaponId) => CORES[weaponId] || CORES.weapon_machete;
 export const RIVAL = {
   name: 'THE BAND',
   role: 'Voice on the emergency channel',
+  // Draws a real zombie head rather than the abstract eyes-in-a-shape face — see the
+  // sheet choice in Portrait.draw. `pupilRgb` and `eyeStyle` below are now only consulted
+  // if that sheet fails to decode, which is the one case the fallback still covers.
+  sprite: 'zombie',
   eyeStyle: 'smug',
   sides: 6,
   rgb: [200, 170, 130],
