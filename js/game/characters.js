@@ -22,6 +22,7 @@ export const CORES = {
     rgb: [186, 214, 235],
     pupilRgb: [255, 255, 255],
     spin: 0.5,
+    sprite: true,
   },
   weapon_bow: {
     id: 'weapon_bow',
@@ -34,6 +35,7 @@ export const CORES = {
     rgb: [176, 210, 160],
     pupilRgb: [255, 255, 255],
     spin: 0.28,
+    sprite: true,
   },
   weapon_axe: {
     id: 'weapon_axe',
@@ -46,6 +48,7 @@ export const CORES = {
     rgb: [235, 150, 90],
     pupilRgb: [255, 255, 255],
     spin: 1.4,
+    sprite: true,
   },
 };
 

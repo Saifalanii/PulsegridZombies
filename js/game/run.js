@@ -383,6 +383,11 @@ export class Run {
       const trail = trailColor(this.trailId, this.time);
       this.particles.burst(p.x, p.y, 10, 200, trail,
         { life: 0.3, size: 2.6, dir: Math.atan2(-p.dashDy, -p.dashDx), spread: 1.5 });
+
+      // The LPC `jump` block (a tuck-and-roll, not a leap — there's no dash pose to
+      // draw from) reads as a dive. playClip locks the anim for its own duration
+      // rather than dashT, so a short last-charge dash doesn't truncate the roll.
+      playClip(this.playerAnim, 'jump', 0, dirFromVector(p.dashDx, p.dashDy));
     }
 
     if (p.dashT > 0) {

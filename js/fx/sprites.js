@@ -40,6 +40,18 @@
 export const FRAME = 64;
 export const BIG_FRAME = 128;
 
+/**
+ * The head crop used for menu portraits (HOLT/MAREN/BRIAR all share the one LPC
+ * character, so this is the single face all three survivors draw from — see Portrait
+ * in fx/face.js). Down-facing idle, frame 0: row 22 (idle) + 2 (down is the 3rd of
+ * up/left/down/right) = row 24, column 0.
+ *
+ * Rect found by scanning the decoded PNG's alpha channel for the head's bounding box
+ * within the top 36px of that frame (the body starts lower), not eyeballed — it's tight
+ * to the cap and collar with 1px of padding on every side.
+ */
+export const PORTRAIT_HEAD = { row: 24, col: 0, sx: 18, sy: 14, sw: 28, sh: 22 };
+
 export const DIR_UP = 0, DIR_LEFT = 1, DIR_DOWN = 2, DIR_RIGHT = 3;
 
 /**
@@ -56,6 +68,9 @@ export const CLIPS = {
   thrust:   { row: 4,  frames: 8,  dirs: 4, fps: 12,  loop: false, hit: 0.5 },
   shoot:    { row: 16, frames: 13, dirs: 4, fps: 20,  loop: false, hit: 0.72 },
   spell:    { row: 0,  frames: 7,  dirs: 4, fps: 11,  loop: false, hit: 0.6 },
+  // The dash is 0.19s (see Run.update); 5 frames at 26fps is ~0.19s, so the tuck-and-roll
+  // finishes right as control returns instead of freezing on frame 4 or looping past it.
+  jump:     { row: 26, frames: 5,  dirs: 4, fps: 26,  loop: false },
   hurt:     { row: 20, frames: 6,  dirs: 1, fps: 9,   loop: false },
   // The first three frames of the hurt row only: recoil and hunch, stopping short of
   // the collapse. Taking a hit and dying share art in LPC, so the flinch has to be a
@@ -100,6 +115,28 @@ export class LpcSheet {
     this.img.onerror = () => { console.warn('[sprites] failed to load', src); };
     this.img.src = src;
   }
+}
+
+// Shared instance for the portrait system (fx/face.js), which draws before a Run exists
+// and so can't reach into Run's own PLAYER_SHEET. Loading the same URL a second time
+// here doesn't cost a second download — the browser's HTTP cache (and the service
+// worker's SHELL cache) dedupes it — it only costs one small Image/decode object.
+export const PORTRAIT_SHEET = new LpcSheet('assets/characters/player_hero_alt.png');
+
+/**
+ * Draw the portrait head (see PORTRAIT_HEAD) centred at (cx, cy), scaled so its width
+ * fills `targetW` CSS px. Caller is responsible for imageSmoothingEnabled = false —
+ * portraits share a canvas with other UI that may want smoothing on.
+ */
+export function drawPortraitHead(ctx, sheet, cx, cy, targetW) {
+  if (!sheet.ready) return false;
+  const h = PORTRAIT_HEAD;
+  const scale = targetW / h.sw;
+  const dw = h.sw * scale, dh = h.sh * scale;
+  ctx.drawImage(sheet.img,
+    h.col * FRAME + h.sx, h.row * FRAME + h.sy, h.sw, h.sh,
+    cx - dw / 2, cy - dh / 2, dw, dh);
+  return true;
 }
 
 /** Snap a movement/facing vector to the nearest of the 4 LPC cardinal directions. */

@@ -12,6 +12,7 @@
 // snapping — the same easing discipline as the rest of the juice layer.
 
 import { TAU, clamp, damp } from '../core/math.js';
+import { PORTRAIT_SHEET, drawPortraitHead } from './sprites.js';
 
 const VOID = 'rgba(3,6,11,0.94)';
 
@@ -278,6 +279,19 @@ export class Portrait {
     ctx.stroke();
 
     ctx.globalCompositeOperation = 'source-over';
-    this.face.draw(ctx, cx, cy, R * 1.55, this.def.pupilRgb || [255, 255, 255]);
+
+    // HOLT/MAREN/BRIAR draw the real LPC head — one character sheet, three survivors, so
+    // the shape+colour ring above is what still tells them apart at a glance. THE BAND
+    // has no sprite and is written to never be seen ("Voice on the emergency channel"),
+    // so it keeps the abstract procedural face — that was never standing in for missing
+    // art, it's the correct portrait for a voice on a radio.
+    if (this.def.sprite && PORTRAIT_SHEET.ready) {
+      const prevSmooth = ctx.imageSmoothingEnabled;
+      ctx.imageSmoothingEnabled = false;
+      drawPortraitHead(ctx, PORTRAIT_SHEET, cx, cy + R * 0.06, R * 1.5);
+      ctx.imageSmoothingEnabled = prevSmooth;
+    } else {
+      this.face.draw(ctx, cx, cy, R * 1.55, this.def.pupilRgb || [255, 255, 255]);
+    }
   }
 }
