@@ -94,8 +94,14 @@ const GROUND_TILES = [
   [10, 1],  //  5 G_DASH_H     dashed centre line, east-west
   [0, 1],   //  6 G_CROSS_H    zebra crossing, stripes banded east-west
   [1, 0],   //  7 G_CROSS_V    zebra crossing, stripes banded north-south
-  [12, 0],  //  8 G_WALK       pavement
-  [14, 2],  //  9 G_WALK2      pavement variant
+  // Pavement. Cells 12-14 look like pavement and are not: that 3x3 block is a *grass
+  // planter* autotile — its corners carry 41 green pixels and its edges and centre 227.
+  // Using a corner as the pavement tile stamped the same tuft of grass onto every
+  // kerbside tile on the map. (4,1) is flat concrete: uniform luminance, no green at all.
+  // The sheet has no second clean pavement variant, so both entries point at it rather
+  // than reintroducing texture that would have to tile seamlessly with itself.
+  [4, 1],   //  8 G_WALK       pavement
+  [4, 1],   //  9 G_WALK2      kept as a distinct id; _isWalkTile tests for both
   [16, 1],  // 10 G_GRASS      the lots, gone to seed
   [28, 1],  // 11 G_COBBLE     the plaza
   [29, 1],  // 12 G_COBBLE2
