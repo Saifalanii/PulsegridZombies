@@ -15,6 +15,7 @@ Files:
 
 - `assets/characters/player_hero.png`
 - `assets/characters/player_hero_alt.png`
+- `assets/characters/player_hero_axe.png`
 - `assets/characters/zombie_green.png`
 - `assets/characters/zombie_rotting.png`
 - `assets/characters/zombie_shadow.png`
@@ -62,7 +63,7 @@ Evert, and many others.
 ```
 [ PASTE THE GENERATOR'S "Credits (TXT)" OUTPUT HERE — one block per character sheet ]
 
-player_hero.png / player_hero_alt.png:
+player_hero.png / player_hero_alt.png / player_hero_axe.png:
   ...
 
 zombie_green.png:
@@ -101,6 +102,35 @@ Before this project is redistributed or published, whoever obtained the tileset 
 
 If the licence turns out to require it, add attribution to the in-game credits line in
 `index.html` alongside the LPC credit.
+
+---
+
+## City sheet — buildings, vehicles and street furniture
+
+File: `assets/city/simple-city-32.png` (one 992x416 atlas, 32px cells).
+
+Supplies every building, every abandoned car, the trees, hedges and street furniture in
+the village — see `CITY` in `js/game/world.js` for the sprite rectangles. It replaced the
+procedurally generated TENEMENT/FACTORY blocks and the generated trees, which are still
+emitted by `tools/make-street-tiles.mjs` but no longer loaded.
+
+The file arrived as `SIMPLE CITY 32X32.png` with no readme, no licence file and no
+metadata. **The artist and the licence terms are therefore not recorded here**, exactly as
+with the village tileset above, and the same warning applies: nobody should read that
+silence as permission.
+
+Before this project is redistributed or published, whoever obtained this sheet must:
+
+1. Identify the source listing (the name suggests an itch.io or asset-store pack) and the
+   artist.
+2. Record the artist's name, a link to the original listing, and the exact licence.
+3. Replace this section with that information, and extend the in-game credit line if the
+   licence requires attribution there.
+
+A vehicle pack by **@MinZiin_** (<https://minzinn.itch.io/>, CC-BY 4.0) was evaluated for
+the wrecked cars and then dropped — its style did not sit with this sheet, and mixing the
+two was rejected deliberately. No files from it remain in the repository. If it is ever
+reinstated, that licence requires an attribution line here.
 
 ---
 

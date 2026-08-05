@@ -214,7 +214,9 @@ export const WEAPONS = {
   },
   weapon_axe: {
     name: 'Fire Axe', desc: 'Slow, enormous, and clears a whole doorway at once.',
-    cost: 1400, melee: true, clip: 'bigchop',
+    // Real axe art now (player_hero_axe.png via PLAYER_SHEET_AXE in run.js) — `axechop`,
+    // not the sword's `bigchop`, which was this weapon swinging a machete slowly.
+    cost: 1400, melee: true, clip: 'axechop',
     dmg: 62, rate: 1.05, reach: 78, arc: 2.5, knock: 520,
     speed: 0, count: 1, spread: 0, size: 0, pierce: 0, range: 0,
   },
@@ -228,6 +230,11 @@ export const WEAPONS = {
 // The stat keys are unchanged from the original — `count`, `pierce`, `speedMul` and so
 // on still mean what they meant. On a melee weapon the projectile stats fold into reach
 // and swing arc instead (see Run._recomputeDerived), so no offer is ever dead.
+//
+// `desc` therefore takes the equipped weapon's melee flag as well as the level: a card
+// reading "+1 arrow" in front of a survivor holding a fire axe describes something that
+// will not happen. The *draw* is unaffected — the same three upgrades come up at level N
+// for everyone on the daily, they're just described in terms of the weapon in hand.
 
 export const UPGRADES = [
   { id: 'power',   name: 'Whetstone',    max: 6, weight: 100, icon: 3,
@@ -239,15 +246,23 @@ export const UPGRADES = [
     apply: (s) => { s.rateMul *= 1.18; } },
 
   { id: 'multi',   name: 'Split Shot',   max: 3, weight: 55, icon: 5,
-    desc: (l) => `+1 arrow, or a wider swing  (${l}/3)`,
+    desc: (l, melee) => melee
+      ? `+18% swing arc, -7% damage  (${l}/3)`
+      : `+1 arrow, -7% damage each  (${l}/3)`,
     apply: (s) => { s.count += 1; s.spread = Math.max(s.spread, 0.16); s.dmgMul *= 0.93; } },
 
   { id: 'pierce',  name: 'Broadheads',   max: 3, weight: 60, icon: 6,
-    desc: (l) => `Arrows pierce +1 body, melee hits deeper  (${l}/3)`,
+    desc: (l, melee) => melee
+      ? `+12% swing reach  (${l}/3)`
+      : `Arrows punch through +1 body  (${l}/3)`,
     apply: (s) => { s.pierce += 1; } },
 
   { id: 'velocity',name: 'Fletching',    max: 3, weight: 65, icon: 4,
-    desc: (l) => `+28% projectile speed & reach  (${l}/3)`,
+    // speedMul is projectile flight speed and does nothing at all to a swing — only the
+    // rangeMul half of this reaches a melee build, so only that half is claimed.
+    desc: (l, melee) => melee
+      ? `+20% swing reach  (${l}/3)`
+      : `+28% arrow speed, +20% range  (${l}/3)`,
     apply: (s) => { s.speedMul *= 1.28; s.rangeMul *= 1.2; } },
 
   { id: 'swift',   name: 'Marathon',     max: 5, weight: 85, icon: 3,
@@ -277,7 +292,9 @@ export const UPGRADES = [
   // effect that a melee build can use keeps the offer honest without splitting the
   // upgrade stream by weapon.
   { id: 'homing',  name: 'Bloodhound',   max: 2, weight: 45, icon: 0,
-    desc: (l) => `Arrows curve toward the nearest body; +8% reach  (${l}/2)`,
+    desc: (l, melee) => melee
+      ? `+8% swing reach  (${l}/2)`
+      : `Arrows curve toward the nearest body; +8% range  (${l}/2)`,
     apply: (s) => { s.homing += 2.6; s.rangeMul *= 1.08; } },
 
   { id: 'dashmaster', name: 'Sprint Training', max: 2, weight: 45, icon: 4,
@@ -297,7 +314,11 @@ export const UPGRADES = [
     apply: (s) => { s.shardMul *= 1.3; } },
 
   { id: 'bigshot', name: 'Heavy Heads',  max: 3, weight: 55, icon: 0,
-    desc: (l) => `+32% projectile size, +12% damage  (${l}/3)`,
+    // sizeMul is arrow hitbox size; a swing has no projectile to widen, so a melee
+    // build only ever collects the damage half.
+    desc: (l, melee) => melee
+      ? `+12% damage  (${l}/3)`
+      : `+32% arrow size, +12% damage  (${l}/3)`,
     apply: (s) => { s.sizeMul *= 1.32; s.dmgMul *= 1.12; } },
 
   { id: 'shield',  name: 'Riot Padding', max: 2, weight: 42, icon: 0,

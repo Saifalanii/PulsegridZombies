@@ -57,6 +57,16 @@ const DEFAULTS = {
 
 function deepMerge(base, patch) {
   const out = Array.isArray(base) ? base.slice() : { ...base };
+  // A shallow spread leaves every nested default (`settings`, `unlocked`, `dailyScores`,
+  // `claimedMilestones`) pointing at DEFAULTS itself. Any key the stored save happens not
+  // to carry — an older version, a partial write — would then be *the* DEFAULTS object,
+  // so unlock() would push into DEFAULTS.unlocked and reset() would clone a save that had
+  // been quietly polluted all session. Detach them up front.
+  for (const k of Object.keys(out)) {
+    const v = out[k];
+    if (Array.isArray(v)) out[k] = v.slice();
+    else if (v && typeof v === 'object') out[k] = structuredClone(v);
+  }
   if (!patch || typeof patch !== 'object') return out;
   for (const k of Object.keys(patch)) {
     const bv = base[k], pv = patch[k];

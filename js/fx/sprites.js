@@ -32,8 +32,12 @@
 //   rows 34-37  emote       3 frames
 //   rows 38-41  run         8 frames
 //   rows 42-45  combat idle 2 frames
-//   oversized @ y=3456      4 rows x 9 frames  big overhead sword slash
-//   oversized @ y=3968      4 rows x 6 frames  big sword backslash / half-slash
+//   oversized @ y=3456      4 rows x 9 frames  big overhead sword slash   (128px cells)
+//   oversized @ y=3968      4 rows x 6 frames  big sword backslash        (128px cells)
+//
+//   `player_hero_axe.png` — 1152x4224. Standard 54-row body block on top, and below it a
+//   4 rows x 6 frames axe swing in *192px* cells at y=3456. The larger cell is the only
+//   thing that makes this sheet look unusual; see `axechop` and drawAnim's big branch.
 //
 // Direction order within every 4-row block is up, left, down, right.
 
@@ -102,11 +106,32 @@ export const CLIPS = {
   bigslash:   { big: 3968, frames: 6, dirs: 4, fps: 15, loop: false, hit: 0.5 },
   // Same swing art, wound down — a fire axe is the same motion carrying more mass.
   bigchop:    { big: 3968, frames: 6, dirs: 4, fps: 9,  loop: false, hit: 0.58 },
+
+  // The Fire Axe's own sheet (player_hero_axe.png — see PLAYER_SHEET_AXE in run.js).
+  //
+  // This block is 192px cells, not 128 — hence `cell`. That is the whole story of this
+  // clip: read at the usual BIG_FRAME stride the block looks like a mangled export with
+  // blank columns scattered through it, because a 128px grid slices every third 192px
+  // cell in half. Scanned on its own stride it is a completely ordinary LPC swing:
+  // 4 rows x 6 columns at y=3456, up/left/down/right, all 24 frames substantive.
+  //
+  // Verified by scanline occupancy on the actual PNG, not assumed — the four rows of
+  // content sit at y=3527-3582, 3727-3773, 3919-3974 and 4111-4157, i.e. one band per
+  // 192px row starting at 3456. The body occupies the middle 64x64 of each cell, the
+  // same convention the 128px blocks use, which is what lets drawAnim handle both from
+  // one formula.
+  axechop:  { big: 3456, cell: 192, frames: 6, dirs: 4, fps: 9, loop: false, hit: 0.58 },
+  // Frame 0 of the swing, held — the axe equivalent of `swordstand`. There is no
+  // separate walk-with-axe block on this sheet (the big region is this one animation and
+  // nothing else), so the axe shows while standing and the survivor walks with the
+  // sheet's body-only walk rows. Same limitation the bow has.
+  axestand: { big: 3456, cell: 192, frames: 1, dirs: 4, fps: 1, loop: true },
 };
 
 /** Clips that fall back to a standard-geometry equivalent on sheets without big rows. */
 const BIG_FALLBACK = {
   bigslash: 'slash', bigchop: 'slash', swordcarry: 'walk', swordstand: 'idle',
+  axechop: 'slash', axestand: 'idle',
 };
 
 export class LpcSheet {
@@ -297,11 +322,17 @@ export function drawAnim(ctx, sheet, a, x, y, size, alpha = 1, filter = null) {
   if (filter) ctx.filter = filter;
 
   if (def.big) {
-    const F = BIG_FRAME;
-    const d = size * 2;
+    // Oversized cells come in two sizes (128 for the sword block, 192 for the axe — see
+    // `cell` on axechop). Both centre the same 64px body in the cell, so one formula
+    // covers them: draw the whole cell at the body's scale, offset by however much
+    // margin the cell carries around that body.
+    const F = def.cell || BIG_FRAME;
+    const scale = size / FRAME;
+    const d = F * scale;
+    const off = ((F - FRAME) / 2) * scale;
     ctx.drawImage(sheet.img,
       frame * F, def.big + dir * F, F, F,
-      x - d / 2, y - size * 0.86 - size / 2, d, d);
+      x - size / 2 - off, y - size * 0.86 - off, d, d);
   } else {
     const F = FRAME;
     ctx.drawImage(sheet.img,

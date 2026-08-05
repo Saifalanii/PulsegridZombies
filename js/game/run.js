@@ -37,10 +37,15 @@ import {
 //                          with an arrow nocked. Nothing else on this sheet shows a
 //                          weapon.
 //
-// Which one gets drawn is decided per-frame in _drawPlayer by whether the equipped
-// weapon is melee or ranged — see PLAYER_SHEET_BOW below and _recomputeDerived.
+// A third export, player_hero_axe.png, carries the Fire Axe's swing (sprites.js's
+// `axechop`/`axestand`) as a full 4-direction block — same layout as the sword's, just
+// in larger 192px cells.
+//
+// Which sheet gets drawn is decided per-frame in _drawPlayer by which weapon is
+// equipped — see PLAYER_SHEET_BOW/PLAYER_SHEET_AXE below and _recomputeDerived.
 const PLAYER_SHEET = new LpcSheet('assets/characters/player_hero.png', { big: true });
 const PLAYER_SHEET_BOW = new LpcSheet('assets/characters/player_hero_alt.png');
+const PLAYER_SHEET_AXE = new LpcSheet('assets/characters/player_hero_axe.png', { big: true });
 const SHEETS = {
   green:   new LpcSheet('assets/characters/zombie_green.png'),
   rotting: new LpcSheet('assets/characters/zombie_rotting.png'),
@@ -74,6 +79,8 @@ const mkEnemy = () => ({
   phase: 0, spawnT: 0, elite: false, dmgScale: 1, speedScale: 1,
   split: false, shielded: false, parentUid: 0, sweepT: 0,
   atkState: A_NONE, atkT: 0, atkCd: 0, groanT: 0,
+  // Wall-following state — see the stuck check in _updateEnemies.
+  sampleT: 0, lastX: 0, lastY: 0, detourT: 0, detour: 0,
   // Created once per pool slot rather than per spawn — object churn in the hot path is
   // exactly what the pooling exists to avoid.
   anim: createAnim(), _idx: 0,
@@ -268,10 +275,21 @@ export class Run {
     // is cached here rather than recomputed in the hot draw path, and `this.weapon ===
     // WEAPONS.weapon_bow` is the one ranged weapon that exists today — if a second
     // ranged weapon is ever added with its own sheet, this identity check needs to
-    // become a lookup instead of a single flag.
+    // become a lookup instead of a single flag. Same reasoning for axeEquipped/the
+    // Fire Axe below, checked ahead of the generic `this.melee` branch since the axe
+    // is melee too but needs its own sheet, not the sword's.
     this.bowEquipped = this.weapon === WEAPONS.weapon_bow;
+    this.axeEquipped = this.weapon === WEAPONS.weapon_axe;
     if (this.playerAnim) {
-      if (this.melee && PLAYER_SHEET.big) {
+      if (this.axeEquipped) {
+        // Like the bow: no walking-with-axe art exists on this sheet, only the swing's
+        // own first frame reused as a stand pose (see sprites.js's `axestand`) — so,
+        // same limitation, the axe is visible standing still and vanishes mid-stride.
+        // The stand pose is directional, though, so a waiting survivor at least holds
+        // the axe facing whatever they're aiming at.
+        this.playerAnim.walkClip = null;
+        this.playerAnim.idleClip = 'axestand';
+      } else if (this.melee && PLAYER_SHEET.big) {
         this.playerAnim.walkClip = 'swordcarry';
         this.playerAnim.idleClip = 'swordstand';
       } else if (this.bowEquipped) {
@@ -305,7 +323,7 @@ export class Run {
       const idx = avail.indexOf(pick);
       avail.splice(idx, 1); weights.splice(idx, 1);
       const lvl = (this.upgradeLevels[pick.id] || 0) + 1;
-      out.push({ def: pick, level: lvl, desc: pick.desc(lvl) });
+      out.push({ def: pick, level: lvl, desc: pick.desc(lvl, this.melee) });
     }
     return out;
   }
@@ -818,6 +836,7 @@ export class Run {
     e.split = false;
     e.shielded = false;
     e.parentUid = 0;
+    e.sampleT = 0; e.lastX = e.x; e.lastY = e.y; e.detourT = 0; e.detour = 0;
     e.sweepT = def.sweepEvery || 0;
 
     // Something claws its way up out of the dirt.
@@ -905,7 +924,7 @@ export class Run {
 
       const dx = p.x - e.x, dy = p.y - e.y;
       const d = Math.hypot(dx, dy) || 1;
-      const nx = dx / d, ny = dy / d;
+      let nx = dx / d, ny = dy / d;
       const speed = def.speed * e.speedScale;
 
       // ---------------------------------------------------------- melee
@@ -941,6 +960,42 @@ export class Run {
                  dirFromVector(nx, ny));
         audio.swing(0.8);
         continue;
+      }
+
+      // ---------------------------------------------------------- wall following
+      //
+      // The dead have no pathfinder, and they don't need one — but they do need to not
+      // stand pressed against a tree for the rest of the night. Every behaviour below
+      // steers along (nx, ny), straight at the survivor; when that vector points into a
+      // wall the body grinds there forever, because nothing about "walk at the player"
+      // ever stops being true.
+      //
+      // Detecting that is less obvious than it looks. A blocked body is not stationary:
+      // moveResolved *reverses* the blocked component (`vx *= -0.15`) while the behaviour
+      // damps it straight back, so the thing jitters against the trunk — moving every
+      // single frame, going nowhere. A per-frame "did it move?" test sees healthy motion
+      // and never fires. Net displacement over a window is what actually distinguishes
+      // walking from grinding, which is what the sampler below measures.
+      //
+      // This deliberately runs *after* the attack block above: a zombie mid-swing should
+      // face the thing it's swinging at, not the direction it was detouring.
+      if (e.detourT > 0) {
+        if (e.detour === 0) {
+          // Probe both perpendiculars and commit to whichever is clear. If both are (or
+          // neither is), fall back to a per-body constant so a crowd meeting the same
+          // wall splits around it instead of every one of them picking the same way.
+          const ahead = e.r * 2.4 + 20;
+          const lx = -ny, ly = nx;
+          const lOpen = !this.world.blocked(e.x + lx * ahead, e.y + ly * ahead, e.r * 0.8);
+          const rOpen = !this.world.blocked(e.x - lx * ahead, e.y - ly * ahead, e.r * 0.8);
+          e.detour = lOpen && !rOpen ? 1 : rOpen && !lOpen ? -1 : (e.uid & 1 ? 1 : -1);
+        }
+        // ~66 degrees off the direct line: enough to clear a corner, shallow enough that
+        // the body is still visibly coming for you rather than wandering off.
+        const a = 1.15 * e.detour;
+        const ca = Math.cos(a), sa = Math.sin(a);
+        const rx = nx * ca - ny * sa, ry = nx * sa + ny * ca;
+        nx = rx; ny = ry;
       }
 
       switch (def.behavior) {
@@ -1077,6 +1132,29 @@ export class Run {
         e.y = clamp(e.y, a.y + e.r, a.y + a.h - e.r);
       } else {
         this.world.moveResolved(e, e.r * 0.8, e.x + e.vx * dt, e.y + e.vy * dt);
+
+        // Net displacement over a window, against how far this body could have walked in
+        // that time. Under 30% means it is grinding on something rather than travelling.
+        //
+        // Bodies that are *supposed* to be standing still are excluded: a Runner freezing
+        // before its charge and a Lurker winding up its leap both cover no ground on
+        // purpose, and flagging those would send them sidling off mid-telegraph.
+        const restingByDesign =
+          (def.behavior === 'charge' || def.behavior === 'lunge') && e.state !== 0;
+        if (!restingByDesign) {
+          e.sampleT += dt;
+          if (e.sampleT >= 0.45) {
+            const net = Math.hypot(e.x - e.lastX, e.y - e.lastY);
+            if (net < speed * e.sampleT * 0.3) {
+              e.detourT = 1.1;          // refreshed every window it stays stuck
+            }
+            e.lastX = e.x; e.lastY = e.y; e.sampleT = 0;
+          }
+        }
+        if (e.detourT > 0) {
+          e.detourT -= dt;
+          if (e.detourT <= 0) e.detour = 0;   // re-probe next time rather than reuse a stale side
+        }
       }
       updateAnim(e.anim, dt, e.vx, e.vy);
 
@@ -1683,18 +1761,44 @@ export class Run {
 
     const pn = this.world.cullProps(r);
     let pi = 0;
+    // Everything drawn after the survivor is, by definition of the sort, in front of
+    // them. See _drawPropFading.
+    let behindPlayer = true;
 
     for (let i = 0; i < n; i++) {
       const y = ys[i];
       while (pi < pn && this.world.propBaseY(this.world._visProps[pi]) <= y) {
-        this.world.drawPropAt(ctx, this.world._visProps[pi]); pi++;
+        this._drawPropFading(ctx, this.world._visProps[pi], behindPlayer); pi++;
       }
       const k = idx[i];
-      if (k === -1) this._drawPlayer(r);
+      if (k === -1) { this._drawPlayer(r); behindPlayer = false; }
       else if (k <= -1000) this._drawCorpse(r, this.corpses.items[-1000 - k]);
       else this._drawEnemy(r, this.enemies.items[k]);
     }
-    while (pi < pn) { this.world.drawPropAt(ctx, this.world._visProps[pi]); pi++; }
+    while (pi < pn) { this._drawPropFading(ctx, this.world._visProps[pi], behindPlayer); pi++; }
+  }
+
+  /**
+   * Draw a prop, fading it if it is standing between the camera and the survivor.
+   *
+   * Depth sorting is correct and also, on its own, hostile: walk one step up behind a
+   * tenement and the sort does exactly what it should — draws the building over you — and
+   * you are simply gone. In a game where losing track of yourself in a crowd is already
+   * the main readability problem (see the note on _playerVisible), a wall that swallows
+   * you whole is worse than a wall drawn slightly wrong.
+   *
+   * So anything painted after the survivor that covers where they're standing drops to
+   * 45%. The prop still occludes — you can tell you're behind it — but you can see
+   * yourself, and more importantly you can see the thing swinging at you.
+   *
+   * Tested against the chest rather than the feet: the feet are the sort key and sit at
+   * the very bottom edge of the sprite, so a foot-level test flickers on and off as you
+   * walk along a building's base line.
+   */
+  _drawPropFading(ctx, i, behindPlayer) {
+    const p = this.player;
+    const fade = !behindPlayer && p.alive && this.world.propCovers(i, p.x, p.y - 22);
+    this.world.drawPropAt(ctx, i, fade ? 0.45 : 1);
   }
 
   _drawEnemy(r, e) {
@@ -1791,11 +1895,12 @@ export class Run {
     }
 
     // See the note above PLAYER_SHEET_BOW: the sword lives only on PLAYER_SHEET's
-    // oversized rows, the bow only on PLAYER_SHEET_BOW's standard "thrust" rows. Picked
-    // here rather than stored, because the dash's `jump` clip and the hurt/flinch rows
-    // are body-only content present on both sheets, so switching sheets mid-dash or
-    // mid-flinch doesn't skip or duplicate a frame — it's the same row either way.
-    const sheet = this.bowEquipped ? PLAYER_SHEET_BOW : PLAYER_SHEET;
+    // oversized rows, the bow only on PLAYER_SHEET_BOW's standard "thrust" rows, the axe
+    // only on PLAYER_SHEET_AXE's own oversized region. Picked here rather than stored,
+    // because the dash's `jump` clip and the hurt/flinch rows are body-only content
+    // present on every sheet, so switching sheets mid-dash or mid-flinch doesn't skip or
+    // duplicate a frame — it's the same row either way.
+    const sheet = this.axeEquipped ? PLAYER_SHEET_AXE : this.bowEquipped ? PLAYER_SHEET_BOW : PLAYER_SHEET;
     drawAnim(ctx, sheet, this.playerAnim, p.x, p.y, SPRITE_SIZE, alpha,
              p.hurtFlash > 0.1 ? 'brightness(1.6) saturate(0.4)' : null);
   }

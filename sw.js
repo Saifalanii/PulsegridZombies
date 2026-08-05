@@ -4,6 +4,9 @@
 //
 // Bump CACHE when shipping: the old cache is deleted on activate.
 
+// v2: the shell gained player_hero_alt.png and player_hero_axe.png. Without the bump an
+// existing install keeps its v1 cache, never re-runs addAll, and the first offline launch
+// after the update draws a survivor holding nothing.
 const CACHE = 'nightfall-v2';
 
 // On localhost the cache-first strategy below happily serves the module you edited
@@ -46,11 +49,14 @@ const SHELL = [
 
   // --- art ---
   //
-  // The five character sheets actually loaded by js/game/run.js. `player_hero_alt.png`
-  // is deliberately absent: it's the standard-geometry fallback for the same character
-  // and nothing references it, so caching it would cost ~360KB of a first-run download
-  // for a file the game never asks for.
+  // Every character sheet actually loaded: the sword sheet, the bow sheet (also doubles
+  // as the menu-portrait head crop — see PORTRAIT_SHEET in sprites.js), the axe sheet,
+  // and the four zombie variants. This list previously claimed player_hero_alt.png was
+  // unused and skipped it — that stopped being true once the bow and the portraits
+  // started reading from it, and the list just hadn't been updated to say so.
   './assets/characters/player_hero.png',
+  './assets/characters/player_hero_alt.png',
+  './assets/characters/player_hero_axe.png',
   './assets/characters/zombie_green.png',
   './assets/characters/zombie_rotting.png',
   './assets/characters/zombie_shadow.png',
@@ -58,7 +64,7 @@ const SHELL = [
 
   // --- tiles ---
   //
-  // 35 of the 75 files in assets/tiles, not all of them. Two exclusions, both deliberate:
+  // A subset of assets/tiles, not all 75 files. Two exclusions, both deliberate:
   //
   //  - every DAY variant. This game only ever happens after dark, so the DAY sheets are
   //    dead weight in an offline shell.
@@ -86,12 +92,10 @@ const SHELL = [
   './assets/tiles/PUDDLE TILE - NIGHT.png',
   './assets/tiles/PUDDLE DETAIL 1 - NIGHT.png',
   './assets/tiles/PUDDLE DETAIL 2 - NIGHT.png',
-  './assets/tiles/TENEMENT A - NIGHT.png',
-  './assets/tiles/TENEMENT B - NIGHT.png',
-  './assets/tiles/FACTORY - NIGHT.png',
-  './assets/tiles/TREE 1 - NIGHT.png',
-  './assets/tiles/TREE 2 - NIGHT.png',
-  './assets/tiles/TREE 3 - NIGHT.png',
+  // The buildings and trees moved to the city sheet below; the generated TENEMENT/
+  // FACTORY/TREE files are still produced by tools/make-street-tiles.mjs but nothing
+  // loads them any more, so caching them would be a pure download cost.
+  './assets/city/simple-city-32.png',
   './assets/tiles/CHAINLINK A - NIGHT.png',
   './assets/tiles/CHAINLINK B - NIGHT.png',
   './assets/tiles/STORM DRAIN - NIGHT.png',

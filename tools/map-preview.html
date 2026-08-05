@@ -1,0 +1,145 @@
+<meta charset="utf-8">
+<title>Nightfall — map preview</title>
+<!--
+  world.js loads its art with paths relative to the document ("assets/city/..."), which
+  from tools/ would resolve to /tools/assets/... and 404 — leaving the sheet permanently
+  incomplete and every canvas silently blank. Pin the base to the server root so this page
+  can live next to the other tools instead of cluttering the shipped root.
+-->
+<base href="/">
+<style>
+  body { margin: 0; background: #0d1014; color: #cfd6de; font: 13px/1.5 ui-monospace, monospace; padding: 16px; }
+  h1 { font-size: 14px; font-weight: 600; margin: 0 0 4px; letter-spacing: .08em; text-transform: uppercase; }
+  p  { margin: 0 0 14px; color: #7d8894; max-width: 70ch; }
+  .bar { display: flex; gap: 10px; align-items: center; margin-bottom: 14px; flex-wrap: wrap; }
+  input, button { background: #171c22; color: #cfd6de; border: 1px solid #2b333c;
+                  padding: 5px 10px; font: inherit; border-radius: 4px; }
+  button { cursor: pointer; }
+  button:hover { border-color: #4a5663; }
+  .grid { display: flex; flex-wrap: wrap; gap: 14px; }
+  figure { margin: 0; }
+  canvas { display: block; border: 1px solid #232a32; border-radius: 3px; image-rendering: pixelated; }
+  figcaption { color: #6d7883; padding-top: 5px; font-size: 12px; }
+</style>
+
+<h1>Map preview</h1>
+<p>
+  Whole arenas, rendered with the game's own <code>drawGround</code> and <code>drawPropAt</code>
+  so what you see is what generates — not a second drawing path that could disagree with it.
+  The red dot is where the survivor starts.
+</p>
+
+<div class="bar">
+  <label>first seed <input id="seed" type="number" value="5000" style="width: 9em"></label>
+  <label>count <input id="count" type="number" value="6" min="1" max="24" style="width: 4em"></label>
+  <button id="go">render</button>
+  <button id="rand">random</button>
+  <span id="status"></span>
+</div>
+
+<div class="grid" id="out"></div>
+
+<script type="module">
+// Absolute, so it resolves the same whatever <base> is set to.
+import { World } from '/js/game/world.js';
+
+const SIZE = 2400;                 // arena edge, world px (matches Run's default)
+const PX = 520;                    // preview edge, css px
+const scale = PX / SIZE;
+
+const out = document.getElementById('out');
+const status = document.getElementById('status');
+
+// The renderer interface drawGround/cullProps actually use. Faked rather than
+// constructing a real Renderer: a Renderer owns the canvas sizing, the camera, the
+// lantern and the post pass, none of which mean anything for a flat overview.
+function fakeRenderer(ctx) {
+  return { ctx, camX: 0, camY: 0, viewW: SIZE, viewH: SIZE, inView: () => true };
+}
+
+function render(seed) {
+  const canvas = document.createElement('canvas');
+  canvas.width = PX; canvas.height = PX;
+  const ctx = canvas.getContext('2d');
+  ctx.imageSmoothingEnabled = false;
+  ctx.fillStyle = '#05070a';
+  ctx.fillRect(0, 0, PX, PX);
+
+  const arena = { x: -SIZE / 2, y: -SIZE / 2, w: SIZE, h: SIZE };
+  const world = new World(arena, seed);
+
+  ctx.save();
+  ctx.setTransform(scale, 0, 0, scale, PX / 2, PX / 2);
+  const r = fakeRenderer(ctx);
+  world.drawGround(r);
+  const n = world.cullProps(r);
+  for (let i = 0; i < n; i++) world.drawPropAt(ctx, world._visProps[i]);
+  ctx.restore();
+
+  // spawn marker, in preview space
+  world.nearestOpen(0, 0, 14);
+  const sx = (world._ox ?? 0) * scale + PX / 2;
+  const sy = (world._oy ?? 0) * scale + PX / 2;
+  ctx.fillStyle = '#ff4d5a';
+  ctx.beginPath(); ctx.arc(sx, sy, 4, 0, Math.PI * 2); ctx.fill();
+
+  const kinds = {};
+  for (const p of world.props) {
+    const k = Object.keys(world.atlas.props).find((q) => world.atlas.props[q] === p.def) || '?';
+    const g = k.startsWith('car_') ? 'cars'
+            : (k.startsWith('apt') || k.startsWith('shop')) ? 'buildings'
+            : (k.startsWith('tree') || k.startsWith('bush')) ? 'green' : 'street';
+    kinds[g] = (kinds[g] || 0) + 1;
+  }
+  let solid = 0;
+  for (const v of world.solid) if (v) solid++;
+
+  const fig = document.createElement('figure');
+  fig.appendChild(canvas);
+  const cap = document.createElement('figcaption');
+  cap.textContent = `seed ${seed} — ${kinds.buildings || 0} buildings, ${kinds.cars || 0} cars, `
+    + `${kinds.street || 0} street, ${kinds.green || 0} green, `
+    + `${(solid / world.solid.length * 100).toFixed(0)}% solid`;
+  fig.appendChild(cap);
+  out.appendChild(fig);
+}
+
+/**
+ * Resolve once the tinted city sheet has decoded.
+ *
+ * Both drawGround and drawPropAt guard on the sheet being complete and silently draw
+ * nothing before then — which in a preview looks exactly like a generator that produced
+ * an empty map, rather than like a race. Building a throwaway World is how we get at the
+ * shared atlas without the module having to export it.
+ */
+function whenSheetReady() {
+  const probe = new World({ x: -SIZE / 2, y: -SIZE / 2, w: SIZE, h: SIZE }, 1);
+  return new Promise((resolve) => {
+    const tick = () => (probe.atlas.city.complete ? resolve() : setTimeout(tick, 30));
+    tick();
+  });
+}
+
+async function go() {
+  out.innerHTML = '';
+  status.textContent = 'rendering…';
+  await whenSheetReady();
+  const first = +document.getElementById('seed').value;
+  const count = Math.max(1, Math.min(24, +document.getElementById('count').value));
+  // Let the sheet finish decoding, or the first frame draws an empty ground plane.
+  // Deliberately a timer and not requestAnimationFrame: a background or hidden tab does
+  // not composite, rAF never fires there, and the page sits on "rendering…" forever.
+  setTimeout(() => {
+    for (let i = 0; i < count; i++) render(first + i * 3571);
+    status.textContent = '';
+  }, 0);
+}
+
+document.getElementById('go').addEventListener('click', go);
+document.getElementById('rand').addEventListener('click', () => {
+  document.getElementById('seed').value = Math.floor(Math.random() * 1e6);
+  go();
+});
+
+go();
+</script>
