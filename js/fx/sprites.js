@@ -65,7 +65,16 @@ export const CLIPS = {
   idle:     { row: 22, frames: 2,  dirs: 4, fps: 2.2, loop: true },
   walk:     { row: 8,  frames: 9,  dirs: 4, fps: 8,   loop: true },
   slash:    { row: 12, frames: 6,  dirs: 4, fps: 12,  loop: false, hit: 0.55 },
+  // `thrust` doubles as the bow's draw-and-loose on player_hero_alt.png — see the note
+  // above PLAYER_SHEET_BOW in run.js. On every other sheet these same 4 rows are a
+  // generic unarmed lunge (used by the Runner/Crawler zombies), which is why the clip
+  // itself is weapon-agnostic: what it draws depends entirely on which sheet it's asked
+  // to read from.
   thrust:   { row: 4,  frames: 8,  dirs: 4, fps: 12,  loop: false, hit: 0.5 },
+  // Frame 0 of the draw, held — the bow equivalent of `swordstand` below: a standing
+  // survivor with an empty bow row would be holding nothing, same problem the machete
+  // had before `swordcarry` existed.
+  bowstand: { row: 4,  frames: 1,  dirs: 4, fps: 1,   loop: true },
   shoot:    { row: 16, frames: 13, dirs: 4, fps: 20,  loop: false, hit: 0.72 },
   spell:    { row: 0,  frames: 7,  dirs: 4, fps: 11,  loop: false, hit: 0.6 },
   // The dash is 0.19s (see Run.update); 5 frames at 26fps is ~0.19s, so the tuck-and-roll

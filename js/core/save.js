@@ -45,7 +45,10 @@ const DEFAULTS = {
     colorblind: false,
     quality: 'auto',       // auto | high | low
     leftHanded: false,
-    autoFire: true,
+    // autoFire removed — firing is unconditionally automatic now, no manual-fire /
+    // manual-aim mode. A save written before this change may still carry an old
+    // `autoFire: false`; deepMerge in load() means that stale key just sits unread
+    // in this object from now on, harmlessly, since nothing checks it any more.
     shootSound: 'pulse',   // see SHOOT_STYLES in core/audio.js
   },
 
@@ -76,8 +79,12 @@ function deepMerge(base, patch) {
  * A save from before a weapon was shelved can still have it equipped, which would field
  * an invisible one. Demote to the starting weapon instead — the purchase itself is left
  * in `owned`, so unshelving restores it without costing the player the scrap again.
+ *
+ * Empty for now — the bow was the only entry, restored once player_hero_alt.png's
+ * "thrust" rows turned out to carry a real bow draw. Left in place rather than removed:
+ * it's cheap infrastructure for the next time art lags behind an implemented weapon.
  */
-const SHELVED_WEAPONS = ['weapon_bow'];
+const SHELVED_WEAPONS = [];
 
 function sanitizeLoadout(data) {
   if (SHELVED_WEAPONS.includes(data.equippedWeapon)) {

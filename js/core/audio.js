@@ -546,8 +546,16 @@ export class AudioEngine {
   /** Bowstring release. */
   bowRelease() {
     if (this._throttle('bow', 60)) return;
+    // String twang + snap — the bow itself.
     this._tone({ type: 'triangle', freq: 210, toFreq: 95, dur: 0.09, gain: 0.08, attack: 0.001 });
     this._noiseHit({ dur: 0.05, gain: 0.06, freq: 1700, sweepTo: 700, q: 1.6 });
+    // The swoosh — the arrow itself, leaving. A resonant bandpass sweeping quickly
+    // through the shaft's range gives the "cutting air" character a plain lowpass/
+    // highpass sweep doesn't; a slight delay separates it from the twang so the two
+    // don't fuse into one transient, and it decays a beat longer to trail off after
+    // the string sound has already stopped.
+    this._noiseHit({ dur: 0.16, gain: 0.05, freq: 500, sweepTo: 3400, q: 2.6,
+                      type: 'bandpass', delay: 0.012, attack: 0.004 });
   }
 
   /**

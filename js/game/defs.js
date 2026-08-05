@@ -202,7 +202,13 @@ export const WEAPONS = {
   },
   weapon_bow: {
     name: 'Hunting Bow', desc: 'Draw, hold, release. Punches through a line of them.',
-    cost: 700, melee: false, clip: 'shoot',
+    cost: 700, melee: false,
+    // `thrust`, not `shoot` — the bow draw only exists on player_hero_alt.png's row 4-7
+    // block (LPC's "thrust" slot), not on the dedicated 13-frame "shoot" rows, which are
+    // body-only on both player sheets. See PLAYER_SHEET_BOW's note in run.js. The clip's
+    // own fps (12) times its frame count (8) is 0.667s, which is exactly 1/rate below —
+    // the draw finishes right as the next shot is due, with no stretch needed.
+    clip: 'thrust',
     dmg: 34, rate: 1.5, speed: 760, count: 1, spread: 0.02,
     size: 5, pierce: 1, range: 640, reach: 0, arc: 0, knock: 90,
   },
@@ -311,11 +317,12 @@ export const UPGRADES = [
 
 export const SHOP = [
   // Weapons
-  // The Hunting Bow is withheld from the stockpile on purpose. The character art was
-  // exported without a bow layer, so the survivor plays all thirteen frames of draw-and-
-  // release empty-handed and the arrow is still a glowing blob from the neon original.
-  // The weapon itself is fully implemented and stays in WEAPONS — restoring it is this
-  // one entry, once the art exists. See SHELVED_WEAPONS below for the equip guard.
+  // The Hunting Bow was withheld here for a real bow art was found on a second
+  // player export (player_hero_alt.png's "thrust" rows) — see the note above
+  // WEAPONS.weapon_bow and PLAYER_SHEET_BOW in run.js. save.js's SHELVED_WEAPONS
+  // guard, which demoted any save with the bow equipped, is gone too.
+  { id: 'weapon_bow', cat: 'Weapons', name: 'Hunting Bow', cost: 700,
+    desc: WEAPONS.weapon_bow.desc },
   { id: 'weapon_axe', cat: 'Weapons', name: 'Fire Axe', cost: 1400,
     desc: WEAPONS.weapon_axe.desc },
 

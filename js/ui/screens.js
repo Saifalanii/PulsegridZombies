@@ -840,7 +840,6 @@ export class UI {
     addToggle('Haptics', 'Vibration on impacts, where supported.', 'haptics', (v) => { juice.haptics = v; });
     addToggle('Colourblind palette', 'Blue/orange only. Shapes still carry threat information.', 'colorblind', (v) => g.setColorblind(v));
     addToggle('Left-handed', 'Puts the movement stick on the right.', 'leftHanded', (v) => g.input.setOptions({ leftHanded: v }));
-    addToggle('Auto-fire', 'Off means you fire only while touching the right side.', 'autoFire');
     addSeg('Quality', 'Lower this if the frame rate dips.', 'quality',
            [['auto', 'AUTO'], ['high', 'HIGH'], ['low', 'LOW']], (v) => g.setQuality(v));
 

@@ -25,10 +25,22 @@ import {
 // menu's ambient background run — re-decoding ~350KB of spritesheet on every "Play" tap
 // would be wasteful and would flash a blank frame while it re-decoded.
 //
-// The player uses `player_hero.png` rather than the tidier `player_hero_alt.png`
-// specifically for its oversized 128px rows: they are the only frames in the entire
-// asset set that show a weapon in the character's hands.
+// Two separate exports of the same character, each carrying a different weapon in a
+// different animation slot — found by actually looking at the rendered rows, not
+// assumed from either filename:
+//
+//   player_hero.png     — oversized 128px rows carry the sword swing (see sprites.js's
+//                          `bigslash`/`swordcarry`). The standard-geometry rows are
+//                          body-only, same as every other sheet.
+//   player_hero_alt.png — standard geometry throughout, but rows 4-7 (LPC's "thrust"
+//                          slot, all 4 directions, 8 frames each) carry a full bow draw
+//                          with an arrow nocked. Nothing else on this sheet shows a
+//                          weapon.
+//
+// Which one gets drawn is decided per-frame in _drawPlayer by whether the equipped
+// weapon is melee or ranged — see PLAYER_SHEET_BOW below and _recomputeDerived.
 const PLAYER_SHEET = new LpcSheet('assets/characters/player_hero.png', { big: true });
+const PLAYER_SHEET_BOW = new LpcSheet('assets/characters/player_hero_alt.png');
 const SHEETS = {
   green:   new LpcSheet('assets/characters/zombie_green.png'),
   rotting: new LpcSheet('assets/characters/zombie_rotting.png'),
@@ -70,6 +82,7 @@ const mkEnemy = () => ({
 const mkBullet = () => ({
   x: 0, y: 0, vx: 0, vy: 0, life: 0, dmg: 0, pierce: 0, size: 4,
   crit: false, h0: 0, h1: 0, h2: 0, h3: 0, hn: 0, _idx: 0,
+  arrow: false,   // drawn as a real arrow (glowArrow) instead of a glow streak
 });
 
 const mkEBullet = () => ({ x: 0, y: 0, vx: 0, vy: 0, life: 0, dmg: 0, r: 5, rot: 0, _idx: 0 });
@@ -244,13 +257,33 @@ export class Run {
     // How far away the auto-attack is willing to commit.
     this.engageRange = this.melee ? this.meleeReach * 1.05 : this.bulletRange * 1.25;
 
-    // Carry the blade between swings. The 64px walk/idle rows are body-only — the
-    // weapon is only drawn in the oversized carry block — so a melee survivor walks
-    // empty-handed without this, then a sword appears for the duration of a swing.
+    // Carry the weapon between attacks. The 64px walk/idle rows are body-only on every
+    // sheet — the weapon only ever appears in a dedicated attack block — so without this
+    // a survivor walks empty-handed and the weapon pops into existence for the duration
+    // of a swing or a shot.
+    //
+    // Melee and the bow need different *sheets*, not just different clips: the sword
+    // lives in player_hero.png's oversized rows, the bow in player_hero_alt.png's
+    // standard "thrust" rows (see the note above PLAYER_SHEET_BOW). `this.bowEquipped`
+    // is cached here rather than recomputed in the hot draw path, and `this.weapon ===
+    // WEAPONS.weapon_bow` is the one ranged weapon that exists today — if a second
+    // ranged weapon is ever added with its own sheet, this identity check needs to
+    // become a lookup instead of a single flag.
+    this.bowEquipped = this.weapon === WEAPONS.weapon_bow;
     if (this.playerAnim) {
-      const carry = this.melee && PLAYER_SHEET.big;
-      this.playerAnim.walkClip = carry ? 'swordcarry' : null;
-      this.playerAnim.idleClip = carry ? 'swordstand' : null;
+      if (this.melee && PLAYER_SHEET.big) {
+        this.playerAnim.walkClip = 'swordcarry';
+        this.playerAnim.idleClip = 'swordstand';
+      } else if (this.bowEquipped) {
+        // No walking-with-bow art exists, only the standing draw pose — the bow is
+        // visible while stationary and vanishes mid-stride, same limitation the sword
+        // had before swordcarry, just not yet solved for this weapon.
+        this.playerAnim.walkClip = null;
+        this.playerAnim.idleClip = 'bowstand';
+      } else {
+        this.playerAnim.walkClip = null;
+        this.playerAnim.idleClip = null;
+      }
     }
   }
 
@@ -442,7 +475,7 @@ export class Run {
     // `hit` fraction. That is what makes the weapon feel like it has weight, and it's
     // the same contract the zombies' attacks run on.
     p.fireCd -= dt;
-    const wantsFire = save.data.settings.autoFire ? !!target : (input.firing && !!target);
+    const wantsFire = !!target;   // always automatic — no semi-auto/manual-fire mode
     if (p.fireCd <= 0 && wantsFire && p.atkT <= 0) {
       this._startAttack();
     }
@@ -574,6 +607,7 @@ export class Run {
       b.pierce = s.pierce;
       b.size = this.bulletSize * (crit ? 1.25 : 1);
       b.hn = 0;
+      b.arrow = this.bowEquipped;
     }
     audio.bowRelease();
     juice.addShake(0.3);
@@ -1756,7 +1790,13 @@ export class Run {
       alpha = 0.71 + Math.sin(p.iframes * 31.4) * 0.21;
     }
 
-    drawAnim(ctx, PLAYER_SHEET, this.playerAnim, p.x, p.y, SPRITE_SIZE, alpha,
+    // See the note above PLAYER_SHEET_BOW: the sword lives only on PLAYER_SHEET's
+    // oversized rows, the bow only on PLAYER_SHEET_BOW's standard "thrust" rows. Picked
+    // here rather than stored, because the dash's `jump` clip and the hurt/flinch rows
+    // are body-only content present on both sheets, so switching sheets mid-dash or
+    // mid-flinch doesn't skip or duplicate a frame — it's the same row either way.
+    const sheet = this.bowEquipped ? PLAYER_SHEET_BOW : PLAYER_SHEET;
+    drawAnim(ctx, sheet, this.playerAnim, p.x, p.y, SPRITE_SIZE, alpha,
              p.hurtFlash > 0.1 ? 'brightness(1.6) saturate(0.4)' : null);
   }
 
@@ -1836,7 +1876,9 @@ export class Run {
       const b = this.bullets.items[i];
       const rgb = b.crit ? SHARD_RGB : this.palette.primary;
       const sp = Math.hypot(b.vx, b.vy) || 1;
-      r.glowStreak(b.x, b.y, b.vx, b.vy, Math.min(30, sp * 0.03), b.size * 1.3, rgb, 1);
+      const len = Math.min(30, sp * 0.03);
+      if (b.arrow) r.glowArrow(b.x, b.y, b.vx, b.vy, len, b.size * 1.3, rgb, 1);
+      else r.glowStreak(b.x, b.y, b.vx, b.vy, len, b.size * 1.3, rgb, 1);
     }
   }
 

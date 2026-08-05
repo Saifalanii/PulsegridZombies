@@ -714,6 +714,71 @@ export class Renderer {
     ctx.lineCap = 'butt';
   }
 
+  /**
+   * An arrow in flight: a shaft, a triangular head at the leading edge, and a small V
+   * fletching at the tail. `glowStreak` (above) was doing duty for every player
+   * projectile, arrows included — a thick round-capped line with a bright core, which is
+   * exactly right for an energy bolt and reads as a glowing pill for anything with a
+   * physical silhouette. An arrow needs an actual point, or it doesn't parse as one at
+   * a glance in a crowd.
+   *
+   * `len` is the *total* visual length, the same budget glowStreak spends on its
+   * capsule — the head and fletching are carved out of it, not added on top. The first
+   * version added them on top of a streak-sized shaft and came out roughly 70% longer
+   * than the projectile it replaced, which read as oversized. `width` scales down hard
+   * (0.55x) before touching the head/fletch spread, because an arrow is a fine line with
+   * a point, not a thick capsule with a point stuck on the end.
+   */
+  glowArrow(x, y, dx, dy, len, width, rgb, intensity = 1) {
+    const ctx = this.ctx;
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.atan2(dy, dx));
+
+    const w = width * 0.55;
+    const headLen = len * 0.34;
+    const headW = w * 1.3;
+    const fletchLen = len * 0.16;
+    const fletchW = w * 0.9;
+    const shaftEnd = -len;   // shaft runs from the tail to the base of the head
+
+    ctx.lineCap = 'butt';
+
+    // Shaft: a plain stroke, no bright core — the point is what should read as "sharp",
+    // not the whole shape glowing uniformly.
+    ctx.beginPath();
+    ctx.moveTo(shaftEnd, 0);
+    ctx.lineTo(-headLen * 0.15, 0);
+    ctx.lineWidth = Math.max(1, w * 0.4);
+    ctx.strokeStyle = rgba(rgb, 0.85 * intensity);
+    ctx.stroke();
+
+    // Head: solid triangle at the tip (x=0 is the leading point, matching how
+    // glowStreak's `-len..0` convention puts 0 at the direction of travel).
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(-headLen, -headW / 2);
+    ctx.lineTo(-headLen, headW / 2);
+    ctx.closePath();
+    ctx.fillStyle = `rgba(255,255,255,${0.95 * intensity})`;
+    ctx.fill();
+    ctx.strokeStyle = rgba(rgb, 0.9 * intensity);
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Fletching: two small triangles flared out from the tail, one per side.
+    ctx.beginPath();
+    ctx.moveTo(shaftEnd, 0);
+    ctx.lineTo(shaftEnd - fletchLen, -fletchW);
+    ctx.lineTo(shaftEnd - fletchLen * 0.4, 0);
+    ctx.lineTo(shaftEnd - fletchLen, fletchW);
+    ctx.closePath();
+    ctx.fillStyle = rgba(rgb, 0.75 * intensity);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
   // ------------------------------------------------------------- particles
 
   drawParticles(particles) {

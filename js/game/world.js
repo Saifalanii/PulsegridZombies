@@ -58,24 +58,25 @@ const N = ' - NIGHT.png';
 // channel and are meant to overlay the flat water fill, unlike the grass/ground details
 // which are fully opaque replacements.
 
+// Asphalt/concrete/puddle in place of grass/dirt/water — a procedurally generated street
+// set (tools/make-street-tiles.mjs) instead of the Craftpix village pack. Same three-
+// terrain-type structure the generator below already understands (open ground / path /
+// hazard-to-route-around), just reskinned: nothing in the placement logic changed, only
+// which files each index points at and how many detail variants exist per type.
 const TILE_DEFS = [
-  { file: 'GRASS TILE' },                                   // 0
-  { file: 'GRASS DETAIL 1' }, { file: 'GRASS DETAIL 2' },
-  { file: 'GRASS DETAIL 3' }, { file: 'GRASS DETAIL 4' },
-  { file: 'GRASS DETAIL 5' }, { file: 'GRASS DETAIL 6' },   // 1-6
-  { file: 'GROUND TILE' },                                  // 7
-  { file: 'GROUND DETAIL 1' }, { file: 'GROUND DETAIL 2' },
-  { file: 'GROUND DETAIL 3' }, { file: 'GROUND DETAIL 4' },
-  { file: 'GROUND DETAIL 5' },                              // 8-12
-  { file: 'WATER TILE' },                                   // 13
-  { file: 'WATER DETAIL 1', under: 13 }, { file: 'WATER DETAIL 2', under: 13 },
-  { file: 'WATER DETAIL 3', under: 13 }, { file: 'WATER DETAIL 4', under: 13 },
-  { file: 'WATER DETAIL 5', under: 13 },                    // 14-18
+  { file: 'ASPHALT TILE' },                                 // 0
+  { file: 'ASPHALT DETAIL 1' }, { file: 'ASPHALT DETAIL 2' },
+  { file: 'ASPHALT DETAIL 3' }, { file: 'ASPHALT DETAIL 4' }, // 1-4
+  { file: 'CONCRETE TILE' },                                // 5
+  { file: 'CONCRETE DETAIL 1' }, { file: 'CONCRETE DETAIL 2' },
+  { file: 'CONCRETE DETAIL 3' },                            // 6-8
+  { file: 'PUDDLE TILE' },                                  // 9
+  { file: 'PUDDLE DETAIL 1', under: 9 }, { file: 'PUDDLE DETAIL 2', under: 9 }, // 10-11
 ];
 
-const T_GRASS = 0, T_GRASS_D0 = 1, T_GRASS_DN = 6;
-const T_DIRT = 7, T_DIRT_D0 = 8, T_DIRT_DN = 12;
-const T_WATER = 13, T_WATER_D0 = 14, T_WATER_DN = 18;
+const T_GRASS = 0, T_GRASS_D0 = 1, T_GRASS_DN = 4;
+const T_DIRT = 5, T_DIRT_D0 = 6, T_DIRT_DN = 8;
+const T_WATER = 9, T_WATER_D0 = 10, T_WATER_DN = 11;
 
 /**
  * Ground decals — deliberately empty.
@@ -88,8 +89,8 @@ const T_WATER = 13, T_WATER_D0 = 14, T_WATER_DN = 18;
  * That is the rectangular patchwork that reads as the ground flickering as you scroll.
  *
  * Blending terrain properly means slicing these into a 9-patch and picking the sub-tile
- * from the neighbour mask. Until that exists, the 16px GRASS/GROUND DETAIL tiles already
- * scatter through the tile map itself and carry the decoration on their own.
+ * from the neighbour mask. Until that exists, the 16px ASPHALT/CONCRETE DETAIL tiles
+ * already scatter through the tile map itself and carry the decoration on their own.
  */
 const DECAL_DEFS = [];
 
@@ -99,15 +100,22 @@ const DECAL_DEFS = [];
  * walk behind the roof, and a tree is only solid at its trunk.
  */
 const PROP_DEFS = {
-  house1: { file: 'HOUSE 1', w: 80, h: 112, foot: [0.06, 0.55, 0.94, 0.98] },
-  house2: { file: 'HOUSE 2', w: 128, h: 112, foot: [0.08, 0.55, 0.92, 0.98] },
-  church: { file: 'CHURCH', w: 128, h: 112, foot: [0.06, 0.55, 0.94, 0.98] },
+  // The generated buildings now draw a roof AND a wall face (see building() in
+  // tools/make-street-tiles.mjs) — a door and a row of windows on a darker band along
+  // the bottom, the standard top-down trick for implying height without an isometric
+  // camera. The first version was a flat painted rectangle with nothing to distinguish
+  // wall from roof, which read as lying flat on the ground. The footprint below matches
+  // that generator's `wallFrac: 0.32`: only the wall band is solid, same as the Craftpix
+  // houses this replaced, so a survivor is correctly occluded by the roof above it.
+  house1: { file: 'TENEMENT A', w: 80, h: 112, foot: [0.05, 0.66, 0.95, 0.98] },
+  house2: { file: 'TENEMENT B', w: 128, h: 112, foot: [0.05, 0.66, 0.95, 0.98] },
+  church: { file: 'FACTORY', w: 128, h: 112, foot: [0.05, 0.66, 0.95, 0.98] },
   tree1:  { file: 'TREE 1', w: 48, h: 48, foot: [0.32, 0.70, 0.68, 0.98] },
   tree2:  { file: 'TREE 2', w: 48, h: 48, foot: [0.32, 0.70, 0.68, 0.98] },
   tree3:  { file: 'TREE 3', w: 48, h: 48, foot: [0.32, 0.70, 0.68, 0.98] },
-  fence1: { file: 'FENCE 1', w: 16, h: 16, foot: [0, 0.25, 1, 1] },
-  fence2: { file: 'FENCE 2', w: 16, h: 16, foot: [0, 0.25, 1, 1] },
-  pit:    { file: 'PIT', w: 32, h: 48, foot: [0.05, 0.35, 0.95, 0.95] },
+  fence1: { file: 'CHAINLINK A', w: 16, h: 16, foot: [0, 0.25, 1, 1] },
+  fence2: { file: 'CHAINLINK B', w: 16, h: 16, foot: [0, 0.25, 1, 1] },
+  pit:    { file: 'STORM DRAIN', w: 32, h: 48, foot: [0.05, 0.35, 0.95, 0.95] },
 };
 
 function loadImage(file) {

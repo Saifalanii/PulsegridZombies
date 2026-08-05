@@ -27,9 +27,13 @@ class Game {
   constructor() {
     this.canvas = document.getElementById('game');
     this.renderer = new Renderer(this.canvas);
+    // Firing is always automatic — auto-aim at the nearest threat, no manual-aim mode.
+    // That was previously an option (right side became a second stick when auto-fire
+    // was off); the setting is gone, so this is unconditionally the touch-and-dash
+    // scheme input.js's own header comment describes as the baseline.
     this.input = new Input(this.canvas, {
       leftHanded: save.data.settings.leftHanded,
-      manualAim: !save.data.settings.autoFire,
+      manualAim: false,
     });
     this.ui = new UI(this);
 
