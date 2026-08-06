@@ -74,6 +74,13 @@ const N = ' - NIGHT.png';
 // middle three columns of its cell and simply vanishes from the half of the quadrants
 // that don't contain it. So `ground` is indexed at GTS and `solid`/`claim` stay at TS.
 export const GTS = TILE_SRC * 2 * TILE_SCALE;   // 64 world px
+
+// Night tint multipliers, per channel. Blue is attenuated least, so the daylight art
+// loses more of its warmth than its cool tones and settles at roughly the luminance the
+// game already had, instead of merely getting darker. Declared up here because both the
+// sheet tint (loadCitySheet) and the flat ground fills below need it — and a `const` used
+// above its declaration is a ReferenceError, not a hoisted undefined.
+const NIGHT_TINT = [0.58, 0.62, 0.74];
 /** Collision tiles per ground tile, per axis. */
 const G_SUB = GTS / TS;                          // 2
 
@@ -86,8 +93,24 @@ const G_SUB = GTS / TS;                          // 2
  * 582 bright pixels banded across 21 of the 32 rows.
  */
 const GROUND_TILES = [
-  [3, 0],   //  0 G_ROAD       plain asphalt
-  [5, 0],   //  1 G_ROAD2      second plain asphalt, to break up the repeat
+  // The road surface is a flat fill, not a tile.
+  //
+  // (3,0)/(5,0) were the original pick and are not flat: each carries a small repeated
+  // arch — 9 light pixels and 7 dark ones — which vanishes in a mean-colour probe and
+  // reads as a field of bumps once fifty of them tile down a street. No cell on the sheet
+  // is both fully opaque and untextured: the flat-looking candidates in row 0 are
+  // three-quarters transparent (c6r0 has 262 opaque pixels out of 1024 — it is a smudge
+  // decal, and using one as tarmac would have made the roads see-through).
+  //
+  // So tarmac is painted as its own colour. That is exactly what the marking tiles expect
+  // to sit on: their non-marking pixels are 74,77,84 against this 75,78,85, a difference
+  // of one unit per channel, so the join is invisible.
+  //
+  // The key is `paint` and not `fill` for a sharp reason: this table mixes [col,row]
+  // arrays with objects, and every array inherits Array.prototype.fill, so `if (t.fill)`
+  // is truthy for all fourteen entries and hands you a function to destructure.
+  { paint: [75, 78, 85] },   //  0 G_ROAD
+  { paint: [75, 78, 85] },   //  1 G_ROAD2   same surface; kept as a separate id
   [3, 1],   //  2 G_LINE_V     solid line, running north-south
   [4, 0],   //  3 G_LINE_H     solid line, running east-west
   [8, 1],   //  4 G_DASH_V     dashed centre line, north-south
@@ -107,6 +130,16 @@ const GROUND_TILES = [
   [29, 1],  // 12 G_COBBLE2
   [1, 1],   // 13 G_LOT        darker asphalt — yards, alleys, forecourts
 ];
+
+// Bake the night tint into every flat fill once, so drawGround never computes a colour.
+// The sheet gets the same treatment pixel-by-pixel in loadCitySheet; doing it here too is
+// what keeps a painted surface and a blitted tile the same shade of dark.
+for (const t of GROUND_TILES) {
+  if (!Array.isArray(t) && t.paint) {
+    const [r, g, b] = t.paint;
+    t.css = `rgb(${Math.round(r * NIGHT_TINT[0])},${Math.round(g * NIGHT_TINT[1])},${Math.round(b * NIGHT_TINT[2])})`;
+  }
+}
 
 const G_ROAD = 0, G_ROAD2 = 1, G_LINE_V = 2, G_LINE_H = 3, G_DASH_V = 4, G_DASH_H = 5,
       G_CROSS_H = 6, G_CROSS_V = 7, G_WALK = 8, G_WALK2 = 9, G_GRASS = 10,
@@ -135,10 +168,6 @@ const ROAD_TILES = new Set([G_ROAD, G_ROAD2, G_LINE_V, G_LINE_H, G_DASH_V, G_DAS
 //   412k pixels at startup and nothing at all per frame.
 const CITY_SRC = 'assets/city/simple-city-32.png';
 
-// Multipliers per channel. Blue is attenuated least, so the sheet loses more of its warm
-// daylight than its cool tones and settles at roughly the luminance of the existing night
-// tiles instead of merely getting darker.
-const NIGHT_TINT = [0.58, 0.62, 0.74];
 
 /**
  * Sprite rectangles within the city sheet, in source pixels: [sx, sy, sw, sh].
@@ -225,16 +254,23 @@ const PROP_DEFS = {
   bush_a:     { city: 'bush_a',     foot: [0.15, 0.45, 0.85, 0.95] },
   bush_b:     { city: 'bush_b',     foot: [0.15, 0.45, 0.85, 0.95] },
   hedge:      { city: 'hedge',      foot: [0.02, 0.35, 0.98, 0.97] },
-  // Street furniture. A pole and a traffic light are thin things standing on a small
-  // base — the footprint is the base only, not the mast, or the survivor snags on
-  // something they can visibly walk past.
-  pole:       { city: 'pole',   foot: [0.36, 0.86, 0.64, 1.0] },
-  light:      { city: 'light',  foot: [0.30, 0.78, 0.70, 1.0] },
-  sign_a:     { city: 'sign_a', foot: [0.34, 0.86, 0.66, 1.0] },
-  sign_b:     { city: 'sign_b', foot: [0.34, 0.86, 0.66, 1.0] },
-  bench:      { city: 'bench',  foot: [0.06, 0.45, 0.94, 0.98] },
-  bin:        { city: 'bin',    foot: [0.10, 0.35, 0.90, 0.98] },
-  crate:      { city: 'crate',  foot: [0.08, 0.30, 0.92, 0.98] },
+  // Street furniture — deliberately NOT solid.
+  //
+  // Collision is a bitmap at TS (32 world px), so any footprint at all rounds up to whole
+  // tiles: a road sign whose base is 13px wide still marks a full 32px tile, an invisible
+  // wall more than twice the width of the thing you can see. Two of those either side of
+  // a wreck leave a gap narrower than the survivor's 26px diameter, and you are wedged in
+  // place by scenery you could obviously step around. Cars, buildings and trees are big
+  // enough that their collider matches their art; a bin is not.
+  //
+  // They still claim their space, so they don't stack on top of each other.
+  pole:       { city: 'pole',   foot: [0.36, 0.86, 0.64, 1.0], solid: false },
+  light:      { city: 'light',  foot: [0.30, 0.78, 0.70, 1.0], solid: false },
+  sign_a:     { city: 'sign_a', foot: [0.34, 0.86, 0.66, 1.0], solid: false },
+  sign_b:     { city: 'sign_b', foot: [0.34, 0.86, 0.66, 1.0], solid: false },
+  bench:      { city: 'bench',  foot: [0.06, 0.45, 0.94, 0.98], solid: false },
+  bin:        { city: 'bin',    foot: [0.10, 0.35, 0.90, 0.98], solid: false },
+  crate:      { city: 'crate',  foot: [0.08, 0.30, 0.92, 0.98], solid: false },
 
   // Unplaced, kept wired: see the note in _generate on why the fence and grave passes
   // were cut. Both still resolve, so restoring a placement pass needs no work here.
@@ -296,9 +332,11 @@ function atlas() {
     const d = PROP_DEFS[k];
     if (d.city) {
       const [sx, sy, sw, sh] = CITY[d.city];
-      ATLAS.props[k] = { img: ATLAS.city, crop: [sx, sy, sw, sh], w: sw, h: sh, foot: d.foot };
+      ATLAS.props[k] = { img: ATLAS.city, crop: [sx, sy, sw, sh], w: sw, h: sh, foot: d.foot,
+                         solid: d.solid !== false };
     } else {
-      ATLAS.props[k] = { img: loadImage(d.file), crop: null, w: d.w, h: d.h, foot: d.foot };
+      ATLAS.props[k] = { img: loadImage(d.file), crop: null, w: d.w, h: d.h, foot: d.foot,
+                         solid: d.solid !== false };
     }
   }
   return ATLAS;
@@ -546,7 +584,10 @@ export class World {
     }
 
     // --- street furniture, on the pavement ---
-    const STREET = ['pole', 'light', 'sign_a', 'sign_b', 'bench', 'bin', 'crate', 'hedge'];
+    // No hedge here any more. It is a 180x58 slab of greenery drawn face-on, and dropped
+    // at random on a pavement it reads as a fence panel someone abandoned — the one prop
+    // on the sheet that needs to be placed deliberately, along a boundary, or not at all.
+    const STREET = ['pole', 'light', 'sign_a', 'sign_b', 'bench', 'bin', 'crate'];
     let street = 0;
     for (let i = 0; i < 700 && street < 46; i++) {
       const kind = STREET[Math.floor(rng.next() * STREET.length)];
@@ -718,12 +759,14 @@ export class World {
     const x = this.ox + tx * TS, y = this.oy + ty * TS;
     const w = def.w * TILE_SCALE, h = def.h * TILE_SCALE;
     const f = def.foot;
-    // Rasterise the footprint into the collision bitmap.
+    // Rasterise the footprint into the collision bitmap — unless the prop is scenery.
     const fx0 = x + w * f[0], fy0 = y + h * f[1];
     const fx1 = x + w * f[2], fy1 = y + h * f[3];
-    for (let gy = Math.floor((fy0 - this.oy) / TS); gy <= Math.floor((fy1 - this.oy) / TS); gy++) {
-      for (let gx = Math.floor((fx0 - this.ox) / TS); gx <= Math.floor((fx1 - this.ox) / TS); gx++) {
-        if (this._in(gx, gy)) this.solid[gy * this.cols + gx] = 1;
+    if (def.solid) {
+      for (let gy = Math.floor((fy0 - this.oy) / TS); gy <= Math.floor((fy1 - this.oy) / TS); gy++) {
+        for (let gx = Math.floor((fx0 - this.ox) / TS); gx <= Math.floor((fx1 - this.ox) / TS); gx++) {
+          if (this._in(gx, gy)) this.solid[gy * this.cols + gx] = 1;
+        }
       }
     }
     this._claimRect(tx, ty, tw, th);
@@ -805,8 +848,16 @@ export class World {
         for (let gx = x0; gx <= x1; gx++) {
           const cell = GROUND_TILES[this.ground[row + gx]];
           if (!cell) continue;
-          ctx.drawImage(sheet, cell[0] * S, cell[1] * S, S, S,
-                        this.ox + gx * GTS, wy, GTS + BLEED, GTS + BLEED);
+          const wx = this.ox + gx * GTS;
+          if (cell.css) {
+            // Flat surface (see G_ROAD). Pre-tinted at module load, so this costs a
+            // fillRect and nothing else.
+            ctx.fillStyle = cell.css;
+            ctx.fillRect(wx, wy, GTS + BLEED, GTS + BLEED);
+          } else {
+            ctx.drawImage(sheet, cell[0] * S, cell[1] * S, S, S,
+                          wx, wy, GTS + BLEED, GTS + BLEED);
+          }
         }
       }
     }
