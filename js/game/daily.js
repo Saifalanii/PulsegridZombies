@@ -5,7 +5,7 @@
 // positions, enemy type choices, elite timing and mutator all draw from it; particle
 // jitter and cosmetic randomness use Math.random so they can't desync the run.
 
-import { Rng, todayKey, dayOffsetKey } from '../core/rng.js';
+import { Rng, todayKey } from '../core/rng.js';
 
 export const MUTATORS = [
   {
@@ -101,8 +101,6 @@ export function mutatorFor(dateKey) {
   const rng = Rng.fromString(`nightfall-v1|${dateKey}`);
   return MUTATORS[Math.floor(rng.next() * MUTATORS.length)];
 }
-
-export const yesterdayKey = () => dayOffsetKey(-1);
 
 /** ms until local midnight — drives the "next daily in ..." countdown. */
 export function msUntilTomorrow() {

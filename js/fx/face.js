@@ -71,16 +71,9 @@ export class Face {
     return a + Math.random() * (b - a);
   }
 
-  /** Immediate wide-eyed reaction. */
-  startle(amount = 1) {
-    this.open = 1 + 0.75 * amount;
-    this.openTarget = 1 + 0.35 * amount;
-    this._blinkPhase = -1;
-    this._blinkT = Math.max(this._blinkT, 0.9);   // don't blink mid-flinch
-  }
-
-  /** Narrow the eyes — used while firing. Decays on its own. */
-  focus(amount = 1) { this.squintTarget = Math.max(this.squintTarget, clamp(amount, 0, 1)); }
+  // startle() and focus() are gone. They drove the face from gameplay — widen on a hit,
+  // narrow while firing — which needs a Face attached to something that fights. The only
+  // faces left are menu portraits, which idle and look around and nothing else.
 
   /** Aim the gaze at a world point relative to the face's own position. */
   lookAt(dx, dy) {
@@ -91,8 +84,6 @@ export class Face {
     this.lookTargetX = (dx / d) * k;
     this.lookTargetY = (dy / d) * k;
   }
-
-  lookForward() { this.lookTargetX = 0; this.lookTargetY = 0; }
 
   update(dt) {
     // Blink cycle: fast close, slightly slower open.

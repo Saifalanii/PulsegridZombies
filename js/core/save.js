@@ -144,11 +144,10 @@ class SaveStore {
 
   // ------------------------------------------------------------ scrap
 
-  addShards(n) {
-    this.data.shards += n;
-    this.data.totalShardsEarned += n;
-    this.save();
-  }
+  // No addShards(): scrap only ever arrives through recordRun (banked at the end of a run)
+  // or commitDaily (a streak milestone), and both write the two counters together and
+  // saveNow() rather than debouncing. A general "add some scrap" helper existed and was
+  // called by nothing.
 
   spendShards(n) {
     if (this.data.shards < n) return false;
@@ -269,7 +268,6 @@ class SaveStore {
     this.saveNow();
   }
 
-  bestScore() { return Math.max(this.data.bestDailyScore, this.data.bestPracticeScore); }
   dailyScore(dateKey) { return this.data.dailyScores[dateKey] || null; }
 }
 

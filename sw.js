@@ -12,6 +12,10 @@
 // is the one that actually needs the bump — the *filename* did not change, so a cache-
 // first install would keep serving the superseded sheet indefinitely, and the new road
 // markings would never appear no matter how many times the player reloaded.
+//
+// v4: the dead-code sweep dropped fifteen assets/tiles entries the game no longer loads.
+// Shrinking the list still needs the bump — an existing v3 install keeps its old cache
+// object, so those files would sit in storage forever with nothing to evict them.
 const CACHE = 'nightfall-v4';
 
 // On localhost the cache-first strategy below happily serves the module you edited
@@ -67,41 +71,18 @@ const SHELL = [
   './assets/characters/zombie_shadow.png',
   './assets/characters/zombie_plague.png',
 
-  // --- tiles ---
+  // --- world art ---
   //
-  // A subset of assets/tiles, not all 75 files. Two exclusions, both deliberate:
+  // One file. The ground, the buildings, the wrecks, the trees and the street furniture
+  // are all rects on this sheet — see CITY and GROUND_TILES in js/game/world.js, whose
+  // `shellAssets()` now returns exactly this single entry.
   //
-  //  - every DAY variant. This game only ever happens after dark, so the DAY sheets are
-  //    dead weight in an offline shell.
-  //  - the NIGHT props the village generator never places (BRIDGE, STAIRS), which would
-  //    need water-crossing logic the world doesn't have.
-  //
-  // The list has to stay in step with TILE_DEFS / DECAL_DEFS / PROP_DEFS in
-  // js/game/world.js — that module exports `shellAssets()`, which returns exactly this
-  // list, so a mismatch can be caught by comparing the two rather than by discovering
-  // offline play is broken. addAll is atomic: one wrong path fails the whole install.
-  // Procedurally generated street set (tools/make-street-tiles.mjs) — see world.js's
-  // TILE_DEFS/DECAL_DEFS/PROP_DEFS, which this list must stay in step with. The old
-  // TERRAIN SET entries are gone too: DECAL_DEFS is empty (see the comment on it in
-  // world.js), so those files were being cached for a code path that no longer reads
-  // them — dead weight in an atomic install list, not just an unused file.
-  './assets/tiles/ASPHALT TILE - NIGHT.png',
-  './assets/tiles/ASPHALT DETAIL 1 - NIGHT.png',
-  './assets/tiles/ASPHALT DETAIL 2 - NIGHT.png',
-  './assets/tiles/ASPHALT DETAIL 3 - NIGHT.png',
-  './assets/tiles/ASPHALT DETAIL 4 - NIGHT.png',
-  './assets/tiles/CONCRETE TILE - NIGHT.png',
-  './assets/tiles/CONCRETE DETAIL 1 - NIGHT.png',
-  './assets/tiles/CONCRETE DETAIL 2 - NIGHT.png',
-  './assets/tiles/CONCRETE DETAIL 3 - NIGHT.png',
-  './assets/tiles/PUDDLE TILE - NIGHT.png',
-  './assets/tiles/PUDDLE DETAIL 1 - NIGHT.png',
-  './assets/tiles/PUDDLE DETAIL 2 - NIGHT.png',
-  // The buildings and trees moved to the city sheet below; the generated TENEMENT/
-  // FACTORY/TREE files are still produced by tools/make-street-tiles.mjs but nothing
-  // loads them any more, so caching them would be a pure download cost.
+  // Every `assets/tiles/*` line that used to sit here is gone. Those were the generated
+  // street set, and nothing has loaded one since the ground became the city sheet plus a
+  // flat tarmac fill: fifteen files fetched on install, on an atomic addAll, for a code
+  // path with no readers. tools/make-street-tiles.mjs still emits them.
   './assets/city/simple-city-32.png',
-  './assets/tiles/CHAINLINK A - NIGHT.png',
+
   // The sword swings are small (170KB each) and they are combat feedback, so they do
   // belong in the atomic install — a silent weapon offline is a broken weapon.
   './assets/audio/sword-1a.wav',
@@ -119,8 +100,6 @@ const SHELL = [
   //
   // If they are ever encoded down (the .wav in particular is uncompressed 48kHz stereo
   // and would lose ~90% of its size as .ogg), move them up into this list.
-  './assets/tiles/CHAINLINK B - NIGHT.png',
-  './assets/tiles/STORM DRAIN - NIGHT.png',
 ];
 
 self.addEventListener('install', (e) => {

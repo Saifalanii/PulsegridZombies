@@ -35,11 +35,12 @@ export class Rng {
   static fromString(str) { return new Rng(hashSeed(str)); }
   static random() { return new Rng((Math.random() * 0xffffffff) >>> 0); }
 
+  // What's left is what the game actually draws: next(), float(), angle() and weighted().
+  // int/bool/sign/pick/shuffle were never called — placement and wave code picks from
+  // arrays with an explicit `Math.floor(rng.next() * arr.length)` so the number of draws
+  // taken from a seeded stream is visible at the call site, which is what keeps the daily
+  // reproducible.
   float(min = 0, max = 1) { return min + this.next() * (max - min); }
-  int(min, max) { return Math.floor(this.float(min, max + 1)); }
-  bool(chance = 0.5) { return this.next() < chance; }
-  sign() { return this.next() < 0.5 ? -1 : 1; }
-  pick(arr) { return arr[Math.floor(this.next() * arr.length)]; }
   angle() { return this.next() * Math.PI * 2; }
 
   /** Weighted pick. `weights[i]` corresponds to `arr[i]`. */
@@ -54,14 +55,6 @@ export class Rng {
     return arr[arr.length - 1];
   }
 
-  /** In-place Fisher-Yates. Deterministic given the stream position. */
-  shuffle(arr) {
-    for (let i = arr.length - 1; i > 0; i--) {
-      const j = Math.floor(this.next() * (i + 1));
-      const t = arr[i]; arr[i] = arr[j]; arr[j] = t;
-    }
-    return arr;
-  }
 }
 
 /** Local calendar date as YYYY-MM-DD. Deliberately local, not UTC: the "day" should

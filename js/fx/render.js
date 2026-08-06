@@ -56,9 +56,8 @@ export class Renderer {
     // World-space lantern, set by Run.draw each frame and consumed by _darkness().
     this.lightX = 0; this.lightY = 0; this.lightR = 520;
 
-    // Pre-rendered sprites, keyed by quantised colour. See _glowSprite / _polySprite.
+    // Pre-rendered soft glow sprites, keyed by quantised colour. See _glowSprite.
     this._glowCache = new Map();
-    this._polyCache = new Map();
 
     this.supportsFilter = typeof this.bloomCtx.filter === 'string';
     this.quality = 'high';   // high | low
@@ -195,23 +194,10 @@ export class Renderer {
     if (w !== this.w || h !== this.h) this.resize();
   }
 
-  /**
-   * Re-applies the exact camera/shake/zoom transform begin() used, without touching
-   * the background or compositing state, then hands the context to `fn` and restores.
-   *
-   * Exists so a caller can draw something in world coordinates that lands in the
-   * right place on screen but *after* end() has already run the bloom/chroma/vignette
-   * pipeline — e.g. the player's face, which needs to track the hull exactly but must
-   * not be smeared by the full-scene blur bloom does. Call after end(), not between
-   * begin()/end(); this only sets the transform, it doesn't clear or composite.
-   */
-  withWorldTransform(juice, fn) {
-    const ctx = this.ctx;
-    ctx.save();
-    this._applyWorldTransform(juice);
-    fn(ctx);
-    ctx.restore();
-  }
+  // withWorldTransform() lived here. It existed for one caller — the player's face,
+  // drawn in world space after end() so the bloom wouldn't smear it — and that face
+  // stopped being drawn in the world when the characters became real sprites. Faces are
+  // menu portraits now, on their own canvases, with no camera to match.
 
   /**
    * Sets the camera/shake/zoom transform from scratch (resets any existing transform
@@ -534,29 +520,10 @@ export class Renderer {
   // Every emissive shape goes through the same 2-pass treatment. `intensity` scales
   // the core brightness — used for flash-on-hit without allocating new colours.
 
-  polyPath(ctx, x, y, r, sides, rot) {
-    ctx.beginPath();
-    for (let i = 0; i < sides; i++) {
-      const a = rot + (i / sides) * TAU;
-      const px = x + Math.cos(a) * r, py = y + Math.sin(a) * r;
-      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-    }
-    ctx.closePath();
-  }
-
-  /** Stroked emissive polygon. */
-  glowPoly(x, y, r, sides, rot, rgb, width = 3, intensity = 1, fillAlpha = 0.08) {
-    const ctx = this.ctx;
-    this.polyPath(ctx, x, y, r, sides, rot);
-    if (fillAlpha > 0) { ctx.fillStyle = rgba(rgb, fillAlpha * intensity); ctx.fill(); }
-    ctx.lineJoin = 'round';
-    ctx.lineWidth = width;
-    ctx.strokeStyle = rgba(rgb, 0.85 * intensity);
-    ctx.stroke();
-    ctx.lineWidth = width * 0.36;
-    ctx.strokeStyle = `rgba(255,255,255,${0.85 * intensity})`;
-    ctx.stroke();
-  }
+  // polyPath/glowPoly/spritePoly are gone with the rest of the polygon era: enemies were
+  // n-sided outlines before they were sprites, and nothing has asked for a stroked
+  // polygon since. glowCircle below is the survivor, because the wind-up tells still
+  // need a ring.
 
   glowCircle(x, y, r, rgb, width = 3, intensity = 1, fillAlpha = 0.08) {
     const ctx = this.ctx;
@@ -612,64 +579,9 @@ export class Renderer {
     return s;
   }
 
-  /**
-   * Pre-rendered emissive polygon sprite (glow + saturated edge + white core baked in).
-   *
-   * For objects that appear in the hundreds and never change size — enemy bullets above
-   * all — this collapses a fill plus two strokes plus a gradient orb into one drawImage.
-   * Path stroking is the single most expensive thing in the entity pass, so trading
-   * per-instance rotation for a static sprite is a good deal on the bullets; enemies
-   * keep the real path renderer because their rotation is a readability cue.
-   */
-  _polySprite(sides, rgb) {
-    const key = `${sides}:${(rgb[0] >> 3)},${(rgb[1] >> 3)},${(rgb[2] >> 3)}`;
-    let s = this._polyCache.get(key);
-    if (s) return s;
-    if (this._polyCache.size > 48) this._polyCache.clear();
-
-    const S = 64, c0 = S / 2, rad = S * 0.24;
-    s = document.createElement('canvas');
-    s.width = s.height = S;
-    const c = s.getContext('2d');
-
-    const g = c.createRadialGradient(c0, c0, 0, c0, c0, c0);
-    g.addColorStop(0, rgba(rgb, 0.55));
-    g.addColorStop(1, rgba(rgb, 0));
-    c.fillStyle = g;
-    c.fillRect(0, 0, S, S);
-
-    c.beginPath();
-    for (let i = 0; i < sides; i++) {
-      const a = -Math.PI / 2 + (i / sides) * TAU;
-      const px = c0 + Math.cos(a) * rad, py = c0 + Math.sin(a) * rad;
-      if (i === 0) c.moveTo(px, py); else c.lineTo(px, py);
-    }
-    c.closePath();
-    c.fillStyle = rgba(rgb, 0.35);
-    c.fill();
-    c.lineJoin = 'round';
-    c.lineWidth = 4;
-    c.strokeStyle = rgba(rgb, 0.9);
-    c.stroke();
-    c.lineWidth = 1.6;
-    c.strokeStyle = 'rgba(255,255,255,0.95)';
-    c.stroke();
-
-    this._polyCache.set(key, s);
-    return s;
-  }
-
-  /** Draws a _polySprite centred at x,y with the given world radius. */
-  spritePoly(x, y, r, sides, rgb, intensity = 1) {
-    const s = this._polySprite(sides, rgb);
-    const ctx = this.ctx;
-    // The sprite's polygon radius is 0.24 of the sheet, so drawing the sheet at
-    // r / 0.24 across makes `r` mean the same thing it does for glowPoly.
-    const half = r / 0.48;
-    if (intensity !== 1) ctx.globalAlpha = intensity;
-    ctx.drawImage(s, x - half, y - half, half * 2, half * 2);
-    if (intensity !== 1) ctx.globalAlpha = 1;
-  }
+  // _polySprite/spritePoly and glowArc removed in the dead-code sweep: the pre-rendered
+  // polygon sheet and its cache served the old outline enemies, and the arc drew the
+  // shield meter that no longer exists. _glowSprite below is still very much in use.
 
   /** Soft filled orb — used for the player core, pickups, projectile heads. */
   glowOrb(x, y, r, rgb, intensity = 1) {
@@ -678,20 +590,6 @@ export class Renderer {
     if (intensity !== 1) ctx.globalAlpha = intensity;
     ctx.drawImage(s, x - r, y - r, r * 2, r * 2);
     if (intensity !== 1) ctx.globalAlpha = 1;
-  }
-
-  glowArc(x, y, r, from, to, rgb, width, intensity = 1) {
-    const ctx = this.ctx;
-    ctx.beginPath();
-    ctx.arc(x, y, r, from, to);
-    ctx.lineCap = 'round';
-    ctx.lineWidth = width;
-    ctx.strokeStyle = rgba(rgb, 0.85 * intensity);
-    ctx.stroke();
-    ctx.lineWidth = width * 0.4;
-    ctx.strokeStyle = `rgba(255,255,255,${0.8 * intensity})`;
-    ctx.stroke();
-    ctx.lineCap = 'butt';
   }
 
   /** Motion-stretched projectile: a capsule aligned to velocity. */

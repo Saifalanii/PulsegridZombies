@@ -56,9 +56,4 @@ export class Pool {
   }
 
   clear() { this.active = 0; }
-
-  /** Iterate live items backwards so callbacks can safely release the current one. */
-  forEachLive(fn) {
-    for (let i = this.active - 1; i >= 0; i--) fn(this.items[i], i);
-  }
 }

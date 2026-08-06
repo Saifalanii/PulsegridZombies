@@ -48,8 +48,6 @@ export const TS = TILE_SRC * TILE_SCALE;   // 32 world px per tile
  */
 const BLEED = 1;
 
-const DIR = 'assets/tiles/';
-const N = ' - NIGHT.png';
 
 // ------------------------------------------------------------------ atlas
 //
@@ -272,19 +270,12 @@ const PROP_DEFS = {
   bin:        { city: 'bin',    foot: [0.10, 0.35, 0.90, 0.98], solid: false },
   crate:      { city: 'crate',  foot: [0.08, 0.30, 0.92, 0.98], solid: false },
 
-  // Unplaced, kept wired: see the note in _generate on why the fence and grave passes
-  // were cut. Both still resolve, so restoring a placement pass needs no work here.
-  fence1: { file: 'CHAINLINK A', w: 16, h: 16, foot: [0, 0.25, 1, 1] },
-  fence2: { file: 'CHAINLINK B', w: 16, h: 16, foot: [0, 0.25, 1, 1] },
-  pit:    { file: 'STORM DRAIN', w: 32, h: 48, foot: [0.05, 0.35, 0.95, 0.95] },
+  // The CHAINLINK/STORM DRAIN props are gone. They were the last three entries pointing
+  // at the old generated tileset, no pass had placed any of them since the city rewrite,
+  // and keeping them meant the whole legacy loader — loadImage, the DIR/N filename
+  // convention, the non-city branch of the atlas — stayed alive for three sprites nobody
+  // could see. The city sheet has its own fences if a boundary pass ever wants one.
 };
-
-function loadImage(file) {
-  const img = new Image();
-  img.onerror = () => console.warn('[world] failed to load', file);
-  img.src = DIR + file + N;
-  return img;
-}
 
 /**
  * The city sheet, darkened to night.
@@ -328,29 +319,20 @@ let ATLAS = null;
 function atlas() {
   if (ATLAS) return ATLAS;
   ATLAS = { props: {}, city: loadCitySheet() };
+  // Every prop is a rect on the one city sheet now, so there is no second image path and
+  // no per-prop Image to wait on: if the sheet has decoded, everything has.
   for (const k in PROP_DEFS) {
     const d = PROP_DEFS[k];
-    if (d.city) {
-      const [sx, sy, sw, sh] = CITY[d.city];
-      ATLAS.props[k] = { img: ATLAS.city, crop: [sx, sy, sw, sh], w: sw, h: sh, foot: d.foot,
-                         solid: d.solid !== false };
-    } else {
-      ATLAS.props[k] = { img: loadImage(d.file), crop: null, w: d.w, h: d.h, foot: d.foot,
-                         solid: d.solid !== false };
-    }
+    const [sx, sy, sw, sh] = CITY[d.city];
+    ATLAS.props[k] = { img: ATLAS.city, crop: [sx, sy, sw, sh], w: sw, h: sh, foot: d.foot,
+                       solid: d.solid !== false };
   }
   return ATLAS;
 }
 
 /** Every image file this module can request, for the service worker shell list. */
 export function shellAssets() {
-  const out = [];
-  for (const k in PROP_DEFS) {
-    const d = PROP_DEFS[k];
-    if (!d.city) out.push(`./${DIR}${d.file}${N}`);
-  }
-  out.push(`./${CITY_SRC}`);
-  return out;
+  return [`./${CITY_SRC}`];
 }
 
 // ------------------------------------------------------------------ World
@@ -724,15 +706,6 @@ export class World {
       }
     }
     return true;
-  }
-
-  _nearClaimed(x0, y0, w, radius) {
-    for (let y = y0 - radius; y <= y0 + radius + 2; y++) {
-      for (let x = x0 - radius; x <= x0 + radius + w; x++) {
-        if (this._in(x, y) && this.claim[y * this.cols + x]) return true;
-      }
-    }
-    return false;
   }
 
   /**
