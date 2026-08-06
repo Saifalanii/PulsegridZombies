@@ -7,6 +7,11 @@
 // v2: the shell gained player_hero_alt.png and player_hero_axe.png. Without the bump an
 // existing install keeps its v1 cache, never re-runs addAll, and the first offline launch
 // after the update draws a survivor holding nothing.
+//
+// v3: the city sheet gained the sword swings and was itself redrawn twice. That last part
+// is the one that actually needs the bump — the *filename* did not change, so a cache-
+// first install would keep serving the superseded sheet indefinitely, and the new road
+// markings would never appear no matter how many times the player reloaded.
 const CACHE = 'nightfall-v3';
 
 // On localhost the cache-first strategy below happily serves the module you edited

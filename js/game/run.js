@@ -1989,10 +1989,20 @@ export class Run {
   }
 
   _drawEBullets(r) {
-    // Bile. Always the same sick green — the one read that never changes meaning.
+    // Bile. Sick green, and — more importantly — a *streak*, not an orb.
+    //
+    // Colour alone was not carrying this. Salvage, experience and bile were all drawn as
+    // the same soft glowing ball and only the hue told them apart, so in a crowd, at
+    // speed, through a darkness pass, incoming damage looked exactly like something worth
+    // running toward. Shape is the read that survives all three: a thing with a tail is
+    // travelling and a round thing is sitting still, which is true of every projectile
+    // and every pickup in the game without the player being told.
     for (let i = 0; i < this.ebullets.active; i++) {
       const b = this.ebullets.items[i];
-      r.glowOrb(b.x, b.y, b.r * 2.2, HAZARD_RGB, 0.95);
+      const sp = Math.hypot(b.vx, b.vy) || 1;
+      r.glowStreak(b.x, b.y, b.vx, b.vy, Math.min(30, sp * 0.06), b.r * 1.25, HAZARD_RGB, 0.85);
+      // A tight hot head, so it still reads as a glob rather than a laser.
+      r.glowOrb(b.x, b.y, b.r * 1.15, HAZARD_RGB, 0.95);
     }
   }
 

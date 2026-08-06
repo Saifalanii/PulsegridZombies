@@ -321,6 +321,43 @@ function resolveClip(sheet, clip) {
  *
  * @returns {boolean} false if the sheet hasn't decoded yet.
  */
+/**
+ * Sheets with a colour filter already baked in, keyed by source + filter string.
+ *
+ * `ctx.filter` is the obvious way to tint a sprite and the wrong one in a crowd. WebKit
+ * implements a canvas filter as a separate off-screen compositing pass *per drawImage*,
+ * so five filtered enemy types on screen — each drawn twice while flashing — turn into
+ * dozens of extra passes every frame. That is a Safari-shaped performance cliff: the
+ * simulation stays at 0.04ms and the frame still misses, which is exactly the "fast phone,
+ * still lagging" report this came from.
+ *
+ * Baking the filter into a copy of the sheet once moves that cost to a single pass at
+ * first sighting, and every draw afterwards is an ordinary blit. Built lazily, so a run
+ * only pays for the enemy types it actually meets: meeting nothing but shamblers costs
+ * nothing at all.
+ */
+const FILTERED = new Map();
+
+function filteredSheet(sheet, filter) {
+  const key = sheet.src + '|' + filter;
+  if (FILTERED.has(key)) return FILTERED.get(key);
+  let out = null;
+  try {
+    const cv = document.createElement('canvas');
+    cv.width = sheet.img.naturalWidth || sheet.img.width;
+    cv.height = sheet.img.naturalHeight || sheet.img.height;
+    const c = cv.getContext('2d');
+    // If the platform can't filter here it can't filter in the draw path either, so the
+    // null result below correctly falls back to drawing untinted rather than to ctx.filter.
+    c.filter = filter;
+    c.drawImage(sheet.img, 0, 0);
+    c.filter = 'none';
+    out = cv;
+  } catch { out = null; }
+  FILTERED.set(key, out);
+  return out;
+}
+
 export function drawAnim(ctx, sheet, a, x, y, size, alpha = 1, filter = null) {
   if (!sheet.ready) return false;
   const def = resolveClip(sheet, a.clip);
@@ -329,7 +366,16 @@ export function drawAnim(ctx, sheet, a, x, y, size, alpha = 1, filter = null) {
 
   const prevAlpha = ctx.globalAlpha;
   if (alpha !== 1) ctx.globalAlpha = prevAlpha * alpha;
-  if (filter) ctx.filter = filter;
+
+  // Tinted sprites blit from a pre-filtered copy of the sheet; see FILTERED. Only if
+  // building that copy failed do we fall back to a per-draw ctx.filter.
+  let src = sheet.img;
+  let liveFilter = null;
+  if (filter) {
+    const baked = filteredSheet(sheet, filter);
+    if (baked) src = baked; else liveFilter = filter;
+  }
+  if (liveFilter) ctx.filter = liveFilter;
 
   if (def.big) {
     // Oversized cells come in two sizes (128 for the sword block, 192 for the axe — see
@@ -340,17 +386,17 @@ export function drawAnim(ctx, sheet, a, x, y, size, alpha = 1, filter = null) {
     const scale = size / FRAME;
     const d = F * scale;
     const off = ((F - FRAME) / 2) * scale;
-    ctx.drawImage(sheet.img,
+    ctx.drawImage(src,
       frame * F, def.big + dir * F, F, F,
       x - size / 2 - off, y - size * 0.86 - off, d, d);
   } else {
     const F = FRAME;
-    ctx.drawImage(sheet.img,
+    ctx.drawImage(src,
       frame * F, (def.row + dir) * F, F, F,
       x - size / 2, y - size * 0.86, size, size);
   }
 
-  if (filter) ctx.filter = 'none';
+  if (liveFilter) ctx.filter = 'none';
   if (alpha !== 1) ctx.globalAlpha = prevAlpha;
   return true;
 }

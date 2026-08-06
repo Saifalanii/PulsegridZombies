@@ -412,6 +412,8 @@ class Game {
     const want = s === S_MENU ? 'menu'
                : (s === S_PLAYING || s === S_LEVELUP || s === S_PAUSED) ? 'run'
                : null;
+    // Decode the run track while the menu is up, not when the player taps GO OUT.
+    audio.warmTracks();
     if (want === this._track) return;
     this._track = want;
     if (want) audio.playTrack(want); else audio.stopTrack();
