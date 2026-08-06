@@ -18,7 +18,11 @@
 // object, so those files would sit in storage forever with nothing to evict them.
 //
 // v5: two more zombie sheets for the early crowd.
-const CACHE = 'nightfall-v5';
+//
+// v6: city sheet redrawn again (clean roads, two new shopfronts), plus the drop chest.
+// The sheet's filename does not change, so without this bump a cache-first install keeps
+// serving the old roads forever.
+const CACHE = 'nightfall-v6';
 
 // On localhost the cache-first strategy below happily serves the module you edited
 // thirty seconds ago, and you debug a file the page isn't running. Development gets
@@ -86,6 +90,7 @@ const SHELL = [
   // flat tarmac fill: fifteen files fetched on install, on an atomic addAll, for a code
   // path with no readers. tools/make-street-tiles.mjs still emits them.
   './assets/city/simple-city-32.png',
+  './assets/city/chest.png',
 
   // The sword swings are small (170KB each) and they are combat feedback, so they do
   // belong in the atomic install — a silent weapon offline is a broken weapon.

@@ -91,42 +91,46 @@ const G_SUB = GTS / TS;                          // 2
  * 582 bright pixels banded across 21 of the 32 rows.
  */
 const GROUND_TILES = [
-  // The road surface is a flat fill, not a tile.
+  // Tarmac is painted as a colour rather than blitted from a cell.
   //
-  // (3,0)/(5,0) were the original pick and are not flat: each carries a small repeated
-  // arch — 9 light pixels and 7 dark ones — which vanishes in a mean-colour probe and
-  // reads as a field of bumps once fifty of them tile down a street. No cell on the sheet
-  // is both fully opaque and untextured: the flat-looking candidates in row 0 are
-  // three-quarters transparent (c6r0 has 262 opaque pixels out of 1024 — it is a smudge
-  // decal, and using one as tarmac would have made the roads see-through).
+  // That began as a workaround: (3,0)/(5,0) carry a small repeated arch — 9 light pixels
+  // and 7 dark — which vanishes in a mean-colour probe and reads as a field of bumps once
+  // fifty of them tile down a street, and at the time no cell was both fully opaque and
+  // untextured. The sheet has since been redrawn and c6..c11 *are* now perfectly flat
+  // (1024 opaque pixels, zero off-dominant), so the workaround is no longer forced.
   //
-  // So tarmac is painted as its own colour. That is exactly what the marking tiles expect
-  // to sit on: their non-marking pixels are 74,77,84 against this 75,78,85, a difference
-  // of one unit per channel, so the join is invisible.
+  // It stays for a better reason than the one it started with: a fillRect is cheaper than
+  // a texture read, this is the most-drawn thing on screen by a wide margin, and we are
+  // fighting for frames on a 120Hz display. The colour is the sheet's own tarmac, so the
+  // seam against the marking cells — whose background is that same 75,78,85 — is invisible.
   //
   // The key is `paint` and not `fill` for a sharp reason: this table mixes [col,row]
   // arrays with objects, and every array inherits Array.prototype.fill, so `if (t.fill)`
-  // is truthy for all fourteen entries and hands you a function to destructure.
+  // is truthy for every entry and hands you a function to destructure.
   { paint: [75, 78, 85] },   //  0 G_ROAD
   { paint: [75, 78, 85] },   //  1 G_ROAD2   same surface; kept as a separate id
-  [3, 1],   //  2 G_LINE_V     solid line, running north-south
-  [4, 0],   //  3 G_LINE_H     solid line, running east-west
-  [8, 1],   //  4 G_DASH_V     dashed centre line, north-south
-  [10, 1],  //  5 G_DASH_H     dashed centre line, east-west
-  [0, 1],   //  6 G_CROSS_H    zebra crossing, stripes banded east-west
-  [1, 0],   //  7 G_CROSS_V    zebra crossing, stripes banded north-south
+  // The lane centre.
+  //
+  // This was the dashed pair at (8,1)/(10,1) until the roads were redrawn clean, which
+  // removed the dashes altogether — those cells are now blank tarmac, so leaving the
+  // table pointed at them would have silently deleted every road marking on the map
+  // while still costing a blit. The solid lines survived the redraw and take over.
+  [3, 1],   //  2 G_CENTRE_V   solid centre line, running north-south
+  [4, 0],   //  3 G_CENTRE_H   solid centre line, running east-west
+  [0, 1],   //  4 G_CROSS_H    zebra crossing, stripes banded east-west
+  [1, 0],   //  5 G_CROSS_V    zebra crossing, stripes banded north-south
   // Pavement. Cells 12-14 look like pavement and are not: that 3x3 block is a *grass
   // planter* autotile — its corners carry 41 green pixels and its edges and centre 227.
   // Using a corner as the pavement tile stamped the same tuft of grass onto every
   // kerbside tile on the map. (4,1) is flat concrete: uniform luminance, no green at all.
   // The sheet has no second clean pavement variant, so both entries point at it rather
   // than reintroducing texture that would have to tile seamlessly with itself.
-  [4, 1],   //  8 G_WALK       pavement
-  [4, 1],   //  9 G_WALK2      kept as a distinct id; _isWalkTile tests for both
-  [16, 1],  // 10 G_GRASS      the lots, gone to seed
-  [28, 1],  // 11 G_COBBLE     the plaza
-  [29, 1],  // 12 G_COBBLE2
-  [1, 1],   // 13 G_LOT        darker asphalt — yards, alleys, forecourts
+  [4, 1],   //  6 G_WALK       pavement
+  [4, 1],   //  7 G_WALK2      kept as a distinct id; _isWalkTile tests for both
+  [16, 1],  //  8 G_GRASS      the lots, gone to seed
+  [28, 1],  //  9 G_COBBLE     the plaza
+  [29, 1],  // 10 G_COBBLE2
+  [1, 1],   // 11 G_LOT        darker asphalt — yards, alleys, forecourts
 ];
 
 // Bake the night tint into every flat fill once, so drawGround never computes a colour.
@@ -139,13 +143,12 @@ for (const t of GROUND_TILES) {
   }
 }
 
-const G_ROAD = 0, G_ROAD2 = 1, G_LINE_V = 2, G_LINE_H = 3, G_DASH_V = 4, G_DASH_H = 5,
-      G_CROSS_H = 6, G_CROSS_V = 7, G_WALK = 8, G_WALK2 = 9, G_GRASS = 10,
-      G_COBBLE = 11, G_COBBLE2 = 12, G_LOT = 13;
+const G_ROAD = 0, G_ROAD2 = 1, G_CENTRE_V = 2, G_CENTRE_H = 3,
+      G_CROSS_H = 4, G_CROSS_V = 5, G_WALK = 6, G_WALK2 = 7, G_GRASS = 8,
+      G_COBBLE = 9, G_COBBLE2 = 10, G_LOT = 11;
 
 /** Anything a car may be abandoned on. */
-const ROAD_TILES = new Set([G_ROAD, G_ROAD2, G_LINE_V, G_LINE_H, G_DASH_V, G_DASH_H,
-                            G_CROSS_H, G_CROSS_V]);
+const ROAD_TILES = new Set([G_ROAD, G_ROAD2, G_CENTRE_V, G_CENTRE_H, G_CROSS_H, G_CROSS_V]);
 
 // ------------------------------------------------------------------ city sheet
 //
@@ -200,7 +203,8 @@ const CITY = {
   // Greenery and street furniture.
   tree_leafy: [ 13, 112, 38, 41],
   tree_pine:  [ 78, 105, 36, 50],
-  bush_a:     [193, 162, 30, 29],
+  // No bush_a. It was the flowered bush at (193,162); the sheet redraw deleted it, and
+  // that rect now holds a single stray pixel.
   bush_b:     [225,  98, 30, 29],
   hedge:      [131,  98, 90, 29],
   pole:       [384, 134, 32, 89],
@@ -249,7 +253,6 @@ const PROP_DEFS = {
 
   tree_leafy: { city: 'tree_leafy', foot: [0.34, 0.68, 0.66, 0.97] },
   tree_pine:  { city: 'tree_pine',  foot: [0.34, 0.72, 0.66, 0.97] },
-  bush_a:     { city: 'bush_a',     foot: [0.15, 0.45, 0.85, 0.95] },
   bush_b:     { city: 'bush_b',     foot: [0.15, 0.45, 0.85, 0.95] },
   hedge:      { city: 'hedge',      foot: [0.02, 0.35, 0.98, 0.97] },
   // Street furniture — deliberately NOT solid.
@@ -289,11 +292,11 @@ const PROP_DEFS = {
  * `multiply` fill paints the transparent margin too), and doing it per-draw with
  * ctx.filter would put a filter change in front of every prop blit in the frame.
  */
-function loadCitySheet() {
+function loadCitySheet(src = CITY_SRC) {
   const canvas = document.createElement('canvas');
   canvas.width = 992; canvas.height = 416;
   const img = new Image();
-  img.onerror = () => console.warn('[world] failed to load', CITY_SRC);
+  img.onerror = () => console.warn('[world] failed to load', src);
   img.onload = () => {
     canvas.width = img.width; canvas.height = img.height;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
@@ -308,10 +311,24 @@ function loadCitySheet() {
     ctx.putImageData(px, 0, 0);
     canvas.complete = true;
   };
-  img.src = CITY_SRC;
+  img.src = src;
   // Matches the `img.complete` guard the tile/prop draw paths already use.
   canvas.complete = false;
   return canvas;
+}
+
+/**
+ * The supply-drop chest, tinted to match everything else.
+ *
+ * Its own file rather than a rect on the sheet, so it goes through the same loader: an
+ * untinted 16px sprite dropped into a night scene reads as lit from a different sun, and
+ * this one is deliberately the brightest object on the map already.
+ */
+export const CHEST_SRC = 'assets/city/chest.png';
+let CHEST = null;
+export function chestImage() {
+  if (!CHEST) CHEST = loadCitySheet(CHEST_SRC);
+  return CHEST;
 }
 
 /** Lazily built once, shared process-wide. */
@@ -332,7 +349,7 @@ function atlas() {
 
 /** Every image file this module can request, for the service worker shell list. */
 export function shellAssets() {
-  return [`./${CITY_SRC}`];
+  return [`./${CITY_SRC}`, `./${CHEST_SRC}`];
 }
 
 // ------------------------------------------------------------------ World
@@ -437,9 +454,9 @@ export class World {
         if (vx && hy) {
           // junction: bare tarmac
         } else if (vx) {
-          if (this._isLaneCentre(gx, streetXs, SW)) tile = G_DASH_V;
+          if (this._isLaneCentre(gx, streetXs, SW)) tile = G_CENTRE_V;
         } else {
-          if (this._isLaneCentre(gy, streetYs, SW)) tile = G_DASH_H;
+          if (this._isLaneCentre(gy, streetYs, SW)) tile = G_CENTRE_H;
         }
         this.ground[gy * gcols + gx] = tile;
       }
@@ -582,7 +599,10 @@ export class World {
     //
     // Trees and scrub in the lots, densest at the edges of the map where the city thins
     // out. Kept off the pavement by the claim pass above.
-    const green = ['tree_leafy', 'tree_pine', 'tree_leafy', 'bush_a', 'bush_b'];
+    // bush_a is gone: the flowered bush was deleted from the sheet, and its rect now
+    // holds a single stray pixel — placing it would have scattered invisible props that
+    // still claimed ground and still cost a blit.
+    const green = ['tree_leafy', 'tree_pine', 'tree_leafy', 'bush_b'];
     for (let i = 0; i < 900; i++) {
       const tx = Math.floor(rng.next() * this.cols);
       const ty = Math.floor(rng.next() * this.rows);

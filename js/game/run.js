@@ -15,7 +15,7 @@ import {
   Palette, HAZARD_RGB, BLOOD_RGB, HEAL_RGB, SHARD_RGB, XP_RGB, rgba, trailColor, TIERS,
 } from './palette.js';
 import { ENEMIES, WEAPONS, UPGRADES, HEAVY, ELITE_TIMES, MINIBOSS_TIMES, metaStats, xpForLevel } from './defs.js';
-import { World, TS } from './world.js';
+import { World, TS, chestImage } from './world.js';
 import {
   LpcSheet, createAnim, resetAnim, updateAnim, updateClipOnly, drawAnim,
   playClip, clipHitReady, dirFromVector, CLIPS,
@@ -1930,13 +1930,15 @@ export class Run {
       r.glowOrb(d.x, d.y + 6, 46, SHARD_RGB, 0.13);
       ctx.globalCompositeOperation = 'source-over';
 
-      const crate = this.world.atlas.props.crate;
-      if (crate && crate.img.complete) {
-        const w = crate.w * 2, h = crate.h * 2;
+      // The chest. Drawn at 3x rather than the usual 2x: it is 16px art where the rest of
+      // the sheet is 32, so 2x would put a half-tile object on the ground as the single
+      // thing the player is supposed to cross a street for.
+      const chest = chestImage();
+      if (chest.complete) {
+        const w = chest.width * 3, h = chest.height * 3;
         const bob = Math.sin(d.t * 3) * 2;
         ctx.imageSmoothingEnabled = false;
-        const c = crate.crop;
-        ctx.drawImage(crate.img, c[0], c[1], c[2], c[3], d.x - w / 2, d.y - h + 6 + bob, w, h);
+        ctx.drawImage(chest, d.x - w / 2, d.y - h + 8 + bob, w, h);
         ctx.imageSmoothingEnabled = true;
       }
 
