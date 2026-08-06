@@ -45,7 +45,6 @@ js/
   ui/     screens
 ```
 
-## Things worth knowing
 
 ### The nightly run is genuinely shared
 
