@@ -51,6 +51,9 @@ const SHEETS = {
   rotting: new LpcSheet('assets/characters/zombie_rotting.png'),
   shadow:  new LpcSheet('assets/characters/zombie_shadow.png'),
   plague:  new LpcSheet('assets/characters/zombie_plague.png'),
+  // Two more bodies for the crowd that arrives first. See ENEMIES.shambler's `sheets`.
+  fresh:   new LpcSheet('assets/characters/zombie_fresh.png'),
+  charred: new LpcSheet('assets/characters/zombie_charred.png'),
 };
 
 /** World height of a standard 64px LPC frame. Two village tiles — see world.js. */
@@ -93,7 +96,7 @@ let UID = 1;
 // ------------------------------------------------------------------ factories
 
 const mkEnemy = () => ({
-  uid: 0, def: null, key: '', x: 0, y: 0, vx: 0, vy: 0, hp: 1, maxHp: 1, r: 10,
+  uid: 0, def: null, key: '', sheet: '', x: 0, y: 0, vx: 0, vy: 0, hp: 1, maxHp: 1, r: 10,
   flash: 0, state: 0, stateT: 0, shootT: 0, callT: 0,
   phase: 0, spawnT: 0, elite: false, dmgScale: 1, speedScale: 1,
   split: false, shielded: false, parentUid: 0, sweepT: 0,
@@ -957,6 +960,10 @@ export class Run {
     const shootT = def.shootEvery ? def.shootEvery * (0.5 + rng.next() * 0.7) : 0;
     const phase = rng.angle();
     const groan = rng.next();
+    // Drawn unconditionally like the rest, even for defs with only one sheet, so that
+    // adding a variant to any enemy later can't shift the stream for the ones that
+    // already exist.
+    const sheetRoll = rng.next();
 
     const e = this.enemies.spawn();
     if (!e) return null;
@@ -968,6 +975,7 @@ export class Run {
     e.uid = UID++;
     e.def = def;
     e.key = typeKey;
+    e.sheet = def.sheets ? def.sheets[Math.floor(sheetRoll * def.sheets.length)] : def.sheet;
     e.x = pos.x; e.y = pos.y;
     e.vx = e.vy = 0;
     e.maxHp = e.hp = def.hp * hpScale;
@@ -1591,7 +1599,7 @@ export class Run {
     const c = this.corpses.spawnOrRecycle ? this.corpses.spawnOrRecycle() : this.corpses.spawn();
     if (!c) return;
     c.x = e.x; c.y = e.y;
-    c.sheet = SHEETS[e.def.sheet] || SHEETS.green;
+    c.sheet = SHEETS[e.sheet] || SHEETS.green;
     c.size = SPRITE_SIZE * (e.def.scale || 1);
     c.filter = e.def.filter || null;
     c.maxLife = c.life = e.elite ? 6.5 : 3.4;
@@ -2062,20 +2070,20 @@ export class Run {
       // ever appears on top of you unseen.
       const t = 1 - e.spawnT / (e.elite ? 1.6 : 0.42);
       this._shadow(ctx, e.x, e.y, e.r * 1.5 * t);
-      drawAnim(ctx, SHEETS[def.sheet] || SHEETS.green, e.anim, e.x, e.y, size,
+      drawAnim(ctx, SHEETS[e.sheet] || SHEETS.green, e.anim, e.x, e.y, size,
                0.15 + t * 0.85, def.filter);
       return;
     }
 
     this._shadow(ctx, e.x, e.y, e.r * 1.5);
-    drawAnim(ctx, SHEETS[def.sheet] || SHEETS.green, e.anim, e.x, e.y, size, 1, def.filter);
+    drawAnim(ctx, SHEETS[e.sheet] || SHEETS.green, e.anim, e.x, e.y, size, 1, def.filter);
 
     // Hit flash: the same frame re-blitted additively. One extra drawImage, no offscreen
     // buffer and no tinted sheet variants in memory.
     if (e.flash > 0.02) {
       const prev = ctx.globalCompositeOperation;
       ctx.globalCompositeOperation = 'lighter';
-      drawAnim(ctx, SHEETS[def.sheet] || SHEETS.green, e.anim, e.x, e.y, size, e.flash * 0.85);
+      drawAnim(ctx, SHEETS[e.sheet] || SHEETS.green, e.anim, e.x, e.y, size, e.flash * 0.85);
       ctx.globalCompositeOperation = prev;
     }
 

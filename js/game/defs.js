@@ -30,6 +30,13 @@
 export const ENEMIES = {
   shambler: {
     name: 'Shambler', sheet: 'green', scale: 1.0,
+    // Three bodies rather than one, picked per corpse at spawn.
+    //
+    // The Shambler is weight 100 at minTime 0, so it *is* the early game: the first
+    // ninety seconds are a street full of one identical man, and identical is the thing
+    // the eye notices fastest. These are cosmetic only — same stats, same behaviour, same
+    // tell — so the variety costs the player nothing to read.
+    sheets: ['green', 'fresh', 'charred'],
     r: 14, hp: 13, speed: 52, dmg: 9,
     xp: 1, score: 10, behavior: 'chase', weight: 100, minTime: 0,
     atk: { range: 40, windup: 0.42, recover: 0.34, cool: 0.55, clip: 'slash', reach: 54 },

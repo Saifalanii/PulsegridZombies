@@ -16,7 +16,9 @@
 // v4: the dead-code sweep dropped fifteen assets/tiles entries the game no longer loads.
 // Shrinking the list still needs the bump — an existing v3 install keeps its old cache
 // object, so those files would sit in storage forever with nothing to evict them.
-const CACHE = 'nightfall-v4';
+//
+// v5: two more zombie sheets for the early crowd.
+const CACHE = 'nightfall-v5';
 
 // On localhost the cache-first strategy below happily serves the module you edited
 // thirty seconds ago, and you debug a file the page isn't running. Development gets
@@ -70,6 +72,8 @@ const SHELL = [
   './assets/characters/zombie_rotting.png',
   './assets/characters/zombie_shadow.png',
   './assets/characters/zombie_plague.png',
+  './assets/characters/zombie_fresh.png',
+  './assets/characters/zombie_charred.png',
 
   // --- world art ---
   //

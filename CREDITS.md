@@ -21,6 +21,8 @@ Files:
 - `assets/characters/zombie_rotting.png`
 - `assets/characters/zombie_shadow.png`
 - `assets/characters/zombie_plague.png`
+- `assets/characters/zombie_fresh.png`
+- `assets/characters/zombie_charred.png`
 
 These were assembled with the **Universal LPC Spritesheet Character Generator**, which
 composites layers contributed by many different artists to the Liberated Pixel Cup.
