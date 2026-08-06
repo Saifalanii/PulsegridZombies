@@ -432,19 +432,8 @@ export class AudioEngine {
     if (this._trackName === name) return;
     this._trackWanted = name;
 
-    let buf = this._trackBufs.get(name);
-    if (!buf) {
-      try {
-        const res = await fetch(TRACKS[name]);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const raw = await this.ctx.decodeAudioData(await res.arrayBuffer());
-        buf = loopSeam(this.ctx, raw);
-        this._trackBufs.set(name, buf);
-      } catch (e) {
-        console.warn('[audio] could not load track', name, e);
-        return;
-      }
-    }
+    const buf = await this._loadTrack(name);
+    if (!buf) return;
     // The world may have moved on while that was in flight.
     if (this._trackWanted !== name || !this.ready) return;
 
@@ -460,6 +449,51 @@ export class AudioEngine {
     src.start();
     this._trackSrc = src;
     this._trackName = name;
+  }
+
+  /**
+   * Fetch, decode and seam-fix a track, once. Returns null if it can't be had.
+   *
+   * Decoding is the expensive part and it is not cheap: decodeAudioData expands the run
+   * track's two minutes twenty into roughly 53MB of float samples, on the main thread.
+   * Left to happen lazily on the first playTrack('run') call, that lands precisely as the
+   * player taps GO OUT — a stutter at the exact moment the game starts asking them to
+   * dodge. warmTracks() below moves it into the menu, where nothing is happening.
+   */
+  async _loadTrack(name) {
+    if (this._trackBufs.has(name)) return this._trackBufs.get(name);
+    if (this._trackLoads?.has(name)) return this._trackLoads.get(name);
+    if (!this._trackLoads) this._trackLoads = new Map();
+    const job = (async () => {
+      try {
+        const res = await fetch(TRACKS[name]);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const raw = await this.ctx.decodeAudioData(await res.arrayBuffer());
+        const buf = loopSeam(this.ctx, raw);
+        this._trackBufs.set(name, buf);
+        return buf;
+      } catch (e) {
+        console.warn('[audio] could not load track', name, e);
+        return null;
+      } finally {
+        this._trackLoads.delete(name);
+      }
+    })();
+    this._trackLoads.set(name, job);
+    return job;
+  }
+
+  /**
+   * Decode the run track ahead of time, while the menu is up.
+   *
+   * Deliberately sequential and deliberately after a delay: the menu track is wanted
+   * immediately and the run track is not, and kicking off a 53MB decode alongside the one
+   * the player is waiting to hear just moves the stutter onto the menu instead.
+   */
+  warmTracks() {
+    if (!this.ready || this._warmed) return;
+    this._warmed = true;
+    setTimeout(() => { this._loadTrack('run'); }, 1500);
   }
 
   stopTrack(fade = 1.0) {
