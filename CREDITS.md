@@ -84,30 +84,6 @@ zombie_plague.png:
 
 ---
 
-## Village tileset
-
-Files: `assets/tiles/*.png` (75 files — a top-down village set with matched DAY and NIGHT
-variants of every tile and prop; this game ships the NIGHT variants).
-
-The set includes a `(THANK YOU).png` card from the artist, which is retained in the
-repository unmodified.
-
-**⚠️ The artist's name and the licence terms are not recorded here**, because the files
-arrived without a licence file, a readme, or any metadata identifying their origin. Nobody
-should assume permission from that absence.
-
-Before this project is redistributed or published, whoever obtained the tileset must:
-
-1. Identify where it came from (itch.io, OpenGameArt, a Humble/asset-store bundle, a
-   commission) and who made it.
-2. Record the artist's name, a link to the original listing, and the exact licence.
-3. Replace this section with that information.
-
-If the licence turns out to require it, add attribution to the in-game credits line in
-`index.html` alongside the LPC credit.
-
----
-
 ## City sheet — buildings, vehicles and street furniture
 
 File: `assets/city/simple-city-32.png` (one 992x416 atlas, 32px cells).
