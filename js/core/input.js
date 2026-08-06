@@ -15,6 +15,17 @@ import { clamp } from './math.js';
 const DEAD_ZONE = 0.16;
 const MAX_RADIUS = 62;      // css px of travel for full deflection
 
+/**
+ * How long the action side must be held before it becomes a heavy swing rather than a
+ * dash, in milliseconds.
+ *
+ * Short on purpose. Everything above this is a heavy and everything below is a dash, so
+ * the number is simultaneously "how long a heavy takes to commit" and "how long a player
+ * can hold the button before losing their dash". 190ms is comfortably longer than a
+ * deliberate tap and comfortably shorter than a panic press that turns into a hold.
+ */
+const HOLD_HEAVY = 190;
+
 export class Input {
   constructor(canvas, opts = {}) {
     this.canvas = canvas;
@@ -27,6 +38,8 @@ export class Input {
     this.aimX = 0; this.aimY = 0; this.aimMag = 0;
 
     this.dashPressed = false;   // edge-triggered, cleared by consumeDash()
+    this.heavyPressed = false;  // edge-triggered, cleared by consumeHeavy()
+    this.hold = null;           // { id, t, fired } while the action side is held
     this.firing = false;        // manual-fire hold state
 
     this.stick = { active: false, id: -1, ox: 0, oy: 0, x: 0, y: 0 };
@@ -69,6 +82,10 @@ export class Input {
       if (e.repeat) return;
       this.keys.add(e.code);
       if (e.code === 'Space' || e.code === 'ShiftLeft') { this.dashPressed = true; e.preventDefault(); }
+      // Desktop gets the heavy on its own key rather than on a hold: a keyboard has spare
+      // keys, and there is no reason to make a mouse-and-keyboard player wait 190ms for
+      // something a touch player only waits for because their thumb has one zone.
+      if (e.code === 'KeyE' || e.code === 'KeyF') { this.heavyPressed = true; e.preventDefault(); }
       if (e.code === 'ArrowUp' || e.code === 'ArrowDown' || e.code === 'ArrowLeft' || e.code === 'ArrowRight') e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
@@ -104,8 +121,12 @@ export class Input {
       s.ox = s.x = e.clientX; s.oy = s.y = e.clientY;
       this.firing = true;
     } else if (!this.manualAim) {
-      this.dashPressed = true;
-      this.aimStick.id = e.pointerId; // remember so pointerup doesn't leak
+      // Action side. Tap = dash, hold = heavy swing. See the note on HOLD_HEAVY.
+      //
+      // Dash cannot fire here, on the press, or every heavy would dash first: the two
+      // actions share one zone, and the only thing that tells them apart is how long the
+      // finger stays down. So the press just starts a clock.
+      this.hold = { id: e.pointerId, t: performance.now(), fired: false };
     }
   }
 
@@ -133,6 +154,31 @@ export class Input {
       this.aimX = this.aimY = this.aimMag = 0;
       this.firing = false;
     }
+    // Released the action side: if the heavy hadn't already fired, this was a tap.
+    if (this.hold && this.hold.id === e.pointerId) {
+      if (!this.hold.fired) this.dashPressed = true;
+      this.hold = null;
+    }
+  }
+
+  /**
+   * Promote a held press into a heavy swing, without waiting for release.
+   *
+   * Called from update(), so the heavy lands the instant the threshold passes and the
+   * player feels the button commit under their thumb rather than on lift-off.
+   *
+   * The cost of this scheme, stated plainly: a tapped dash now fires when the finger
+   * lifts, not when it lands, so it carries whatever the player's own tap duration is —
+   * typically 60-100ms. Dash is the panic button and that latency is the one thing here
+   * worth watching. HOLD_HEAVY is deliberately short to keep it small.
+   */
+  _pollHold() {
+    const h = this.hold;
+    if (!h || h.fired) return;
+    if (performance.now() - h.t >= HOLD_HEAVY) {
+      h.fired = true;
+      this.heavyPressed = true;
+    }
   }
 
   /** Resolve one stick's raw offset into a dead-zoned, clamped axis pair. */
@@ -150,6 +196,7 @@ export class Input {
 
   /** Call once per frame before reading axes. */
   update() {
+    this._pollHold();
     if (this.stick.active) {
       const [x, y, m] = Input._axis(this.stick);
       this.moveX = x; this.moveY = y; this.moveMag = m;
@@ -182,6 +229,12 @@ export class Input {
   /** Edge-triggered read; returns true once per press. */
   consumeDash() {
     if (this.dashPressed) { this.dashPressed = false; return true; }
+    return false;
+  }
+
+  /** Edge-triggered read for the held heavy swing. */
+  consumeHeavy() {
+    if (this.heavyPressed) { this.heavyPressed = false; return true; }
     return false;
   }
 

@@ -14,7 +14,7 @@ import { save } from '../core/save.js';
 import {
   Palette, HAZARD_RGB, BLOOD_RGB, HEAL_RGB, SHARD_RGB, XP_RGB, rgba, trailColor, TIERS,
 } from './palette.js';
-import { ENEMIES, WEAPONS, UPGRADES, ELITE_TIMES, MINIBOSS_TIMES, metaStats, xpForLevel } from './defs.js';
+import { ENEMIES, WEAPONS, UPGRADES, HEAVY, ELITE_TIMES, MINIBOSS_TIMES, metaStats, xpForLevel } from './defs.js';
 import { World, TS } from './world.js';
 import {
   LpcSheet, createAnim, resetAnim, updateAnim, updateClipOnly, drawAnim,
@@ -65,6 +65,25 @@ const MAX_EBULLETS = 220;
 const MAX_PICKUPS = 320;
 const MAX_CORPSES = 44;
 const COMBO_WINDOW = 2.4;
+
+// ------------------------------------------------------------------ supply drops
+//
+// The one thing on the map worth walking to.
+//
+// Everything else valuable in this game arrives by itself: experience and scrap magnetise
+// to you, upgrades come from a level timer, health drops where you were already standing.
+// Nothing ever asks you to decide between safety and reward, which is what a survival game
+// is supposed to be made of, and it is why the streets could be beautiful and still feel
+// like scenery. A crate that lands two hundred metres away, with the horde between you and
+// it, turns the whole city into a decision: which way round the block, which wreck to put
+// between you and the Spitter, whether this one is worth dying for.
+const DROP_FIRST = 34;         // seconds before the first one
+const DROP_EVERY = 46;         // and roughly every this many after
+const DROP_MIN_DIST = 460;     // far enough to be a journey...
+const DROP_MAX_DIST = 900;     // ...close enough to be reachable before the next one
+const DROP_LIFE = 38;          // seconds before it's gone; the decision needs a deadline
+const DROP_RADIUS = 26;        // pickup radius
+const DROP_SCRAP = 22;
 
 // Enemy attack phases. Separate from `state`, which movement behaviours use.
 const A_NONE = 0, A_WINDUP = 1, A_RECOVER = 2;
@@ -189,6 +208,7 @@ export class Run {
       r: 13, aim: -Math.PI / 2, fireCd: 0,
       dashCd: 0, dashLeft: this.stats.dashCharges, dashT: 0, dashDx: 0, dashDy: 0,
       iframes: 0, shield: 0, shieldT: 0, regenAcc: 0,
+      heavyCd: 0, heavyQueued: false, atkHeavy: false,
       level: 1, xp: 0, xpNext: xpForLevel(1),
       alive: true, usedRevive: false, trailAcc: 0, hurtFlash: 0,
       atkT: 0, atkFired: false, stepAcc: 0,
@@ -210,6 +230,14 @@ export class Run {
     this.orbitAngle = 0;
     this.orbitHitT = 0;
     this._aoeDepth = 0;
+
+    // Supply drop state. One at a time on purpose — two competing markers turn a decision
+    // into a shopping list.
+    this.drop = { active: false, x: 0, y: 0, life: 0, t: 0 };
+    this.dropT = DROP_FIRST;
+    // How many of `pendingLevelUps` were granted by a crate rather than by levelling. See
+    // rollUpgradeChoices: those draws must not come off the shared daily stream.
+    this._dropPicks = 0;
 
     // Director state
     this.spawnT = 0.9;
@@ -307,8 +335,19 @@ export class Run {
 
   // ---------------------------------------------------------------- upgrades
 
-  /** Three distinct, non-maxed upgrades. Uses the run rng so the daily offers match. */
+  /**
+   * Three distinct, non-maxed upgrades.
+   *
+   * Level-up offers come off `rngUpgrade`, which is what makes the daily's promise true:
+   * everyone sees the same three cards at level N. A crate's offer must NOT come off that
+   * stream — whether you fetched a crate is a decision *you* made, so if it advanced the
+   * shared stream, two players who chose differently would stop seeing the same level-ups
+   * for the rest of the night. Crate picks therefore draw from `rngAux`, the stream that
+   * already exists for player-driven rolls (crits, drops, bloater spill).
+   */
   rollUpgradeChoices(n = 3) {
+    let rng = this.rngUpgrade;
+    if (this._dropPicks > 0) { this._dropPicks--; rng = this.rngAux; }
     const avail = [], weights = [];
     for (const u of UPGRADES) {
       const lvl = this.upgradeLevels[u.id] || 0;
@@ -319,7 +358,7 @@ export class Run {
     }
     const out = [];
     for (let i = 0; i < n && avail.length; i++) {
-      const pick = this.rngUpgrade.weighted(avail, weights);
+      const pick = rng.weighted(avail, weights);
       const idx = avail.indexOf(pick);
       avail.splice(idx, 1); weights.splice(idx, 1);
       const lvl = (this.upgradeLevels[pick.id] || 0) + 1;
@@ -356,6 +395,7 @@ export class Run {
     this.palette.update(dt);
 
     this._updatePlayer(dt, input);
+    this._updateDrop(dt);
     this._director(dt);
     this._updateEnemies(dt);
     this._updateCorpses(dt);
@@ -493,16 +533,28 @@ export class Run {
     // `hit` fraction. That is what makes the weapon feel like it has weight, and it's
     // the same contract the zombies' attacks run on.
     p.fireCd -= dt;
-    const wantsFire = !!target;   // always automatic — no semi-auto/manual-fire mode
-    if (p.fireCd <= 0 && wantsFire && p.atkT <= 0) {
-      this._startAttack();
+    p.heavyCd = Math.max(0, p.heavyCd - dt);
+
+    // The held button. Deliberately does NOT replace the automatic swing: a player who
+    // never holds it is playing the game exactly as before, and a player who does gets a
+    // decision — when to spend it, and whether standing still long enough to land it is
+    // worth what's walking toward them.
+    if (input.consumeHeavy && input.consumeHeavy() && p.heavyCd <= 0) p.heavyQueued = true;
+
+    const wantsFire = !!target;   // ordinary attack stays fully automatic
+    if (p.atkT <= 0 && p.heavyQueued) {
+      p.heavyQueued = false;
+      p.heavyCd = HEAVY.cooldown;
+      this._startAttack(true);
+    } else if (p.fireCd <= 0 && wantsFire && p.atkT <= 0) {
+      this._startAttack(false);
     }
 
     if (p.atkT > 0) {
       p.atkT -= dt;
       if (!p.atkFired && clipHitReady(this.playerAnim)) {
         p.atkFired = true;
-        if (this.melee) this._meleeSwing(); else this._fire();
+        if (this.melee) this._meleeSwing(p.atkHeavy); else this._fire(p.atkHeavy);
       }
     }
 
@@ -531,18 +583,24 @@ export class Run {
     }
   }
 
-  _startAttack() {
+  _startAttack(heavy = false) {
     const p = this.player;
     // Clip duration is capped so a heavily upgraded attack rate doesn't outrun the
-    // animation into a blur, and so a slow weapon's swing doesn't crawl.
-    const dur = clamp(this.fireInterval * 0.8, 0.24, 0.6);
+    // animation into a blur, and so a slow weapon's swing doesn't crawl. The heavy runs
+    // long on purpose: its wind-up is the cost, and it has to be visible to be a decision.
+    const dur = heavy ? 0.52 : clamp(this.fireInterval * 0.8, 0.24, 0.6);
     playClip(this.playerAnim, this.weapon.clip, dur,
              dirFromVector(Math.cos(p.aim), Math.sin(p.aim)));
     p.atkT = dur;
     p.atkFired = false;
+    p.atkHeavy = heavy;
     p.fireCd = this.fireInterval;
     // Recorded swing for the player only — audio.swing() is also the zombies' wind-up.
-    if (this.melee) audio.swordSwing(); else audio.shoot(1);
+    if (this.melee) audio.swordSwing(heavy ? 1.25 : 1); else audio.shoot(heavy ? 0.8 : 1);
+    if (heavy) {
+      juice.addShake(2.5);
+      this.particles.ring(p.x, p.y, 10, 56, 0.3, trailColor(this.trailId, this.time), 3);
+    }
   }
 
   /** Nearest enemy inside engagement range; elites get a distance discount. */
@@ -566,13 +624,13 @@ export class Run {
    * direction and within reach takes the hit at once, which is what makes a swing feel
    * like a swing and gives crowd control a reason to exist.
    */
-  _meleeSwing() {
+  _meleeSwing(heavy = false) {
     const p = this.player, s = this.stats;
-    const reach = this.meleeReach;
-    const half = this.meleeArc / 2;
+    const reach = this.meleeReach * (heavy ? HEAVY.reachMul : 1);
+    const half = (Math.min(Math.PI * 1.5, this.meleeArc * (heavy ? HEAVY.arcMul : 1))) / 2;
     const ca = Math.cos(p.aim), sa = Math.sin(p.aim);
     const crit = this.rngAux.next() < s.crit;
-    const dmg = this.bulletDmg * (crit ? 2.2 : 1);
+    const dmg = this.bulletDmg * (crit ? 2.2 : 1) * (heavy ? HEAVY.dmgMul : 1);
     let hits = 0;
 
     for (let i = this.enemies.active - 1; i >= 0; i--) {
@@ -587,7 +645,7 @@ export class Run {
       if ((dx / dist) * ca + (dy / dist) * sa < Math.cos(half)) continue;
 
       hits++;
-      const knock = this.weapon.knock;
+      const knock = this.weapon.knock * (heavy ? HEAVY.knockMul : 1);
       e.vx += (dx / dist) * knock;
       e.vy += (dy / dist) * knock;
       this._spray(e.x, e.y, dx / dist, dy / dist, crit ? 16 : 9);
@@ -596,20 +654,24 @@ export class Run {
 
     // The arc itself, drawn as a short-lived sweep of blood-flecked motes so a miss
     // still reads as a swing rather than nothing happening.
-    for (let k = 0; k < 7; k++) {
-      const a = p.aim - half + (k / 6) * this.meleeArc;
+    const n = heavy ? 13 : 7;
+    for (let k = 0; k < n; k++) {
+      const a = p.aim - half + (k / (n - 1)) * half * 2;
       this.particles.spark(p.x + ca * 8, p.y + sa * 8,
         Math.cos(a) * reach * 2.4, Math.sin(a) * reach * 2.4,
-        0.14, 2.4, hits ? BLOOD_RGB : this.palette.primaryDim);
+        heavy ? 0.2 : 0.14, heavy ? 3.4 : 2.4,
+        hits ? BLOOD_RGB : this.palette.primaryDim);
     }
-    if (hits) { audio.hit(); juice.addShake(1.6); }
-    juice.addShake(0.5);
+    if (hits) { audio.hit(); juice.addShake(heavy ? 5 : 1.6); }
+    juice.addShake(heavy ? 2 : 0.5);
   }
 
-  _fire() {
+  _fire(heavy = false) {
     const p = this.player, s = this.stats;
-    const n = s.count;
-    const spread = s.spread;
+    // A held shot is one heavy arrow rather than a wider volley: the decision it offers is
+    // "line them up", which a spread of three would undo.
+    const n = heavy ? 1 : s.count;
+    const spread = heavy ? 0 : s.spread;
     for (let i = 0; i < n; i++) {
       const b = this.bullets.spawn();
       if (!b) break;
@@ -621,10 +683,10 @@ export class Run {
       b.vx = Math.cos(a) * this.bulletSpeed;
       b.vy = Math.sin(a) * this.bulletSpeed;
       b.life = this.bulletRange / this.bulletSpeed;
-      b.dmg = this.bulletDmg * (crit ? 2.2 : 1);
+      b.dmg = this.bulletDmg * (crit ? 2.2 : 1) * (heavy ? HEAVY.dmgMul : 1);
       b.crit = crit;
-      b.pierce = s.pierce;
-      b.size = this.bulletSize * (crit ? 1.25 : 1);
+      b.pierce = s.pierce + (heavy ? HEAVY.pierceBonus : 0);
+      b.size = this.bulletSize * (crit ? 1.25 : 1) * (heavy ? HEAVY.sizeMul : 1);
       b.hn = 0;
       b.arrow = this.bowEquipped;
     }
@@ -724,6 +786,95 @@ export class Run {
       this._hurtEnemy(e, i, dmg, false);
     }
     this._aoeDepth--;
+  }
+
+  // ---------------------------------------------------------------- supply drops
+
+  _updateDrop(dt) {
+    const d = this.drop;
+
+    if (d.active) {
+      d.t += dt;
+      d.life -= dt;
+      if (d.life <= 0) { d.active = false; this.onDropLost?.(); return; }
+
+      const p = this.player;
+      if (p.alive) {
+        const dx = p.x - d.x, dy = p.y - d.y;
+        const rr = DROP_RADIUS + p.r;
+        if (dx * dx + dy * dy < rr * rr) this._collectDrop();
+      }
+      return;
+    }
+
+    this.dropT -= dt;
+    if (this.dropT <= 0) this._placeDrop();
+  }
+
+  /**
+   * Put a crate somewhere worth walking to.
+   *
+   * Placement runs on the director stream, so where the crates land is part of the shared
+   * night — two players on the same daily are offered the same detours. Whether they take
+   * them is the decision, and that lives on rngAux (see rollUpgradeChoices).
+   */
+  _placeDrop() {
+    const p = this.player;
+    const a = this.arena;
+    // Try a few angles rather than committing to the first: a crate inside a building or
+    // out past the arena edge is worse than no crate.
+    for (let i = 0; i < 14; i++) {
+      const ang = this.rng.angle();
+      const dist = DROP_MIN_DIST + this.rng.next() * (DROP_MAX_DIST - DROP_MIN_DIST);
+      let x = clamp(p.x + Math.cos(ang) * dist, a.x + TS * 3, a.x + a.w - TS * 3);
+      let y = clamp(p.y + Math.sin(ang) * dist, a.y + TS * 3, a.y + a.h - TS * 3);
+      if (this.world.blocked(x, y, 22)) {
+        if (this.world.nearestOpen(x, y, 22)) continue;   // already open is impossible here
+        x = this.world._ox; y = this.world._oy;
+        if (this.world.blocked(x, y, 22)) continue;
+      }
+      // Don't drop it on top of the player just because the nudge walked it back.
+      if (Math.hypot(x - p.x, y - p.y) < DROP_MIN_DIST * 0.6) continue;
+
+      const d = this.drop;
+      d.active = true; d.x = x; d.y = y; d.life = DROP_LIFE; d.t = 0;
+      this.dropT = DROP_EVERY;
+
+      // Guarded. A crate you can stroll to is just a delayed pickup; the point is that
+      // something is standing on it.
+      const guards = 2 + Math.floor(this.time / 120);
+      for (let k = 0; k < guards; k++) {
+        const ga = this.rng.angle();
+        this._spawnEnemy(this._pickEnemyType(), 0, 1,
+                         x + Math.cos(ga) * 80, y + Math.sin(ga) * 80, this.rng);
+      }
+      this.particles.ring(x, y, 20, 260, 1.1, SHARD_RGB, 6);
+      audio.milestone?.();
+      this.onDropLanded?.();
+      return;
+    }
+    // Nowhere sensible this time; try again shortly rather than skipping the cycle.
+    this.dropT = 4;
+  }
+
+  _collectDrop() {
+    const d = this.drop;
+    d.active = false;
+
+    this.runShards += DROP_SCRAP;
+    this.score += DROP_SCRAP * 3;
+    // The real prize. Queued through the same path as a level-up so it uses the menu the
+    // player already knows; _dropPicks is what keeps its draw off the daily stream.
+    this._dropPicks++;
+    this.pendingLevelUps++;
+
+    this.particles.ring(d.x, d.y, 10, 200, 0.7, SHARD_RGB, 6);
+    this.particles.burst(d.x, d.y, 26, 240, SHARD_RGB, { life: 0.9, size: 3.4 });
+    this.particles.text(d.x, d.y - 30, 'SALVAGED', SHARD_RGB, 1.0, 18);
+    audio.shard();
+    juice.levelUp();
+    this.onDropTaken?.();
+    this.onLevelUp?.();
   }
 
   // ---------------------------------------------------------------- director
@@ -1706,9 +1857,29 @@ export class Run {
     // never let happen. A warm pool of light on the dirt reads as "you are here" without
     // adding a marker that would look like a UI element pasted into the world.
     if (this.player.alive) {
+      const p = this.player;
       const trail = trailColor(this.trailId, this.time);
       ctx.globalCompositeOperation = 'lighter';
-      r.glowOrb(this.player.x, this.player.y + 8, 78, trail, 0.16);
+      r.glowOrb(p.x, p.y + 8, 78, trail, 0.16);
+
+      // Heavy-swing readiness, drawn at the survivor's feet rather than in the HUD.
+      // The decision this button offers is a moment-to-moment one — swing now or hold it
+      // for the pack behind — and an indicator in a screen corner is somewhere the player
+      // is never looking while that decision is live.
+      if (p.heavyCd > 0) {
+        const frac = 1 - p.heavyCd / HEAVY.cooldown;
+        ctx.globalAlpha = 0.5;
+        ctx.strokeStyle = rgba(trail, 0.9);
+        ctx.lineWidth = 2.5;
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y + 10, 22, 9, 0, -Math.PI / 2, -Math.PI / 2 + TAU * frac);
+        ctx.stroke();
+        ctx.globalAlpha = 1;
+      } else {
+        // Ready: a slow breath, enough to notice in peripheral vision, not enough to
+        // compete with the wind-up tells.
+        r.glowCircle(p.x, p.y + 10, 22 + Math.sin(this.time * 3) * 1.5, trail, 1.6, 0.35, 0);
+      }
       ctx.globalCompositeOperation = 'source-over';
     }
 
@@ -1725,6 +1896,83 @@ export class Run {
 
     r.drawParticles(this.particles);
     this._drawTells(r);
+    this._drawDrop(r);
+  }
+
+  /**
+   * The crate, and — when it's off screen — where to go for it.
+   *
+   * Drawn last, over everything including the tells. A marker you have to hunt for behind
+   * a tenement is not a marker; the whole feature is "there is something over there", and
+   * that has to survive a crowd, a building and the darkness pass.
+   */
+  _drawDrop(r) {
+    const d = this.drop;
+    if (!d.active) return;
+    const ctx = r.ctx;
+
+    if (r.inView(d.x, d.y, 80)) {
+      // Ground ring, pulsing, plus the crate sprite from the city sheet so it reads as an
+      // object in the world rather than as UI painted on the floor.
+      const pulse = 1 + Math.sin(d.t * 4) * 0.12;
+      ctx.globalCompositeOperation = 'lighter';
+      r.glowCircle(d.x, d.y + 6, DROP_RADIUS * 1.5 * pulse, SHARD_RGB, 2.5, 0.9, 0.05);
+      r.glowOrb(d.x, d.y + 6, 46, SHARD_RGB, 0.13);
+      ctx.globalCompositeOperation = 'source-over';
+
+      const crate = this.world.atlas.props.crate;
+      if (crate && crate.img.complete) {
+        const w = crate.w * 2, h = crate.h * 2;
+        const bob = Math.sin(d.t * 3) * 2;
+        ctx.imageSmoothingEnabled = false;
+        const c = crate.crop;
+        ctx.drawImage(crate.img, c[0], c[1], c[2], c[3], d.x - w / 2, d.y - h + 6 + bob, w, h);
+        ctx.imageSmoothingEnabled = true;
+      }
+
+      // Expiry warning: the ring tightens and reddens over the last five seconds.
+      if (d.life < 5) {
+        ctx.globalCompositeOperation = 'lighter';
+        const t = 1 - d.life / 5;
+        r.glowCircle(d.x, d.y + 6, DROP_RADIUS * (2.6 - t * 1.1), BLOOD_RGB, 1.5 + t * 2, 0.8, 0);
+        ctx.globalCompositeOperation = 'source-over';
+      }
+      return;
+    }
+
+    // Off screen: an arrow pinned inside the viewport edge, pointing the way. Drawn in
+    // world space (the whole draw pass is), so it has to be placed relative to the camera
+    // rather than to the canvas.
+    const p = this.player;
+    const dx = d.x - r.camX, dy = d.y - r.camY;
+    const ang = Math.atan2(dy, dx);
+    const hw = r.viewW / 2 - 46, hh = r.viewH / 2 - 46;
+    // Clamp to the viewport rectangle along the direction of travel.
+    const scale = Math.min(hw / Math.abs(Math.cos(ang) || 1e-4), hh / Math.abs(Math.sin(ang) || 1e-4));
+    const ax = r.camX + Math.cos(ang) * scale;
+    const ay = r.camY + Math.sin(ang) * scale;
+
+    ctx.globalCompositeOperation = 'lighter';
+    const pulse = 0.75 + Math.sin(d.t * 5) * 0.25;
+    r.glowOrb(ax, ay, 15, SHARD_RGB, 0.5 * pulse);
+    ctx.save();
+    ctx.translate(ax, ay);
+    ctx.rotate(ang);
+    ctx.beginPath();
+    ctx.moveTo(16, 0); ctx.lineTo(-8, -10); ctx.lineTo(-3, 0); ctx.lineTo(-8, 10);
+    ctx.closePath();
+    ctx.fillStyle = rgba(SHARD_RGB, 0.95);
+    ctx.fill();
+    ctx.restore();
+    ctx.globalCompositeOperation = 'source-over';
+
+    // How far, so the player can judge whether it's worth the trip.
+    const dist = Math.round(Math.hypot(d.x - p.x, d.y - p.y));
+    ctx.fillStyle = rgba(SHARD_RGB, 0.9);
+    ctx.font = '600 13px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(`${dist}m`, ax, ay + 30);
+    ctx.textAlign = 'start';
   }
 
   /**

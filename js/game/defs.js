@@ -192,6 +192,28 @@ export const MINIBOSS_TIMES = [200, 400, 600];
 // on the character is incoherent; being *forced* into the horde's reach to kill anything
 // is what makes the horde matter.
 
+/**
+ * The heavy swing: what the held button does.
+ *
+ * Auto-attack is untouched, so a player who never holds the button loses nothing and the
+ * game is still playable with one thumb. This is the opt-in: slower, wider, and hard
+ * enough to shove a crowd off you, on its own cooldown so it can't be spammed in place of
+ * the ordinary swing.
+ *
+ * Ranged weapons get it too — a drawn shot that punches through a line — because a bow
+ * player pressing the same button should not be told "not for you".
+ */
+export const HEAVY = {
+  cooldown: 3.4,
+  dmgMul: 2.6,
+  arcMul: 1.55,        // melee: how much wider the cone is
+  reachMul: 1.2,
+  knockMul: 2.4,
+  // Ranged: the held shot ignores `count` and fires one fat, deep-piercing projectile.
+  pierceBonus: 3,
+  sizeMul: 1.8,
+};
+
 export const WEAPONS = {
   weapon_machete: {
     name: 'Machete', desc: 'Fast arcing swing. You have to be close. That is the deal.',

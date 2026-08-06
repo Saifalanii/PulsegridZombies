@@ -235,6 +235,8 @@ class Game {
       say('eliteKill');
     };
     this.run.onRevive = () => { this.ui.banner('SECOND WIND'); say('nearDeath'); };
+    this.run.onDropLanded = () => this.ui.banner('SUPPLY DROP');
+    this.run.onDropLost = () => this.ui.banner('SUPPLIES LOST');
     this.run.onHurt = () => {
       // Below a quarter health the survivor stops joking about the hit and starts
       // commenting on being nearly dead — same trigger, different register.
