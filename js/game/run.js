@@ -1841,6 +1841,8 @@ export class Run {
    */
   draw(r) {
     const ctx = r.ctx;
+    // Stashed for _shadow and the other helpers that only ever get a ctx handed down.
+    this._r = r;
 
     // The lantern the darkness pass punches out of the night, and how far it reaches —
     // both driven by the night phase, so the world closes in as the night wears on.
@@ -2099,14 +2101,15 @@ export class Run {
     drawAnim(ctx, c.sheet, c.anim, c.x, c.y, c.size, a, c.filter);
   }
 
-  /** A soft contact shadow. Cheap, and it's what stops sprites from looking pasted on. */
+  /**
+   * A soft contact shadow. It's what stops sprites from looking pasted on.
+   *
+   * Delegates to the renderer's pre-rendered sprite rather than filling a path per body —
+   * see Renderer.shadowEllipse. Signature keeps the ctx argument it never needed so the
+   * dozen call sites don't all have to change shape.
+   */
   _shadow(ctx, x, y, rad, alpha = 0.5) {
-    ctx.globalAlpha = alpha;
-    ctx.fillStyle = '#000';
-    ctx.beginPath();
-    ctx.ellipse(x, y + 6, rad, rad * 0.42, 0, 0, TAU);
-    ctx.fill();
-    ctx.globalAlpha = 1;
+    this._r.shadowEllipse(x, y, rad, alpha);
   }
 
   /** Shared by the body pass and the sort, so they agree about blinking. */

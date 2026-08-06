@@ -471,21 +471,48 @@ class Game {
     this.ui.setHue(pal.hue, pal.colorblind ? pal.hue : pal.hue + 20);
   }
 
+  /**
+   * Watch the frame time *during play* and drop quality if we can't hold the display's
+   * own refresh rate.
+   *
+   * The previous version measured the first 140 frames of the session and then set a flag
+   * that stopped it looking ever again. Those 140 frames are the main menu — one ambient
+   * world, no crowd, no post-processing load worth the name — so on any device where the
+   * menu is smooth it concluded "high is fine" and never revisited that during an actual
+   * run. A phone that dropped frames the moment a hundred bodies arrived had no way to
+   * tell anyone.
+   *
+   * It also compared against a fixed 48fps. On a 120Hz screen the budget is 8.3ms, not
+   * 16.7ms, and a frame that comfortably beat 48 could still be missing every single
+   * vsync — which is the specific thing that feels like permanent low-grade stutter
+   * rather than like a slow game. The target is now derived from the fastest frame we
+   * have actually observed, which is the only honest read on what this display wants.
+   */
   _trackFps(dt) {
-    if (this.qualityMode !== 'auto' || this.autoQualityChecked) return;
+    if (this.qualityMode !== 'auto' || this._autoQuality === 'low') return;
+    // Only judge frames where we were actually rendering a run.
+    if (this.state !== S_PLAYING) return;
+    // Ignore absurd values: a tab stall or a level-up menu is not a slow frame.
+    if (dt > 0.2 || dt <= 0) return;
+
+    this._fastestFrame = Math.min(this._fastestFrame ?? dt, dt);
     this.fpsSamples.push(dt);
-    // Ignore the first ~40 frames (module eval, first paint, audio graph construction).
-    if (this.fpsSamples.length < 140) return;
-    const recent = this.fpsSamples.slice(40);
-    const avg = recent.reduce((a, b) => a + b, 0) / recent.length;
-    this.autoQualityChecked = true;
+    if (this.fpsSamples.length < 180) return;      // ~1.5-3s of play depending on refresh
+
+    const sorted = this.fpsSamples.slice().sort((a, b) => a - b);
+    const median = sorted[sorted.length >> 1];
     this.fpsSamples.length = 0;
-    if (avg > 1 / 48) {
+
+    // The display's period, inferred rather than assumed. Snapped to the nearest common
+    // refresh so a jittery sample doesn't invent a 93Hz screen.
+    const hz = 1 / this._fastestFrame;
+    const target = hz > 90 ? 1 / 120 : hz > 70 ? 1 / 90 : 1 / 60;
+    // Missing by a third of a frame, consistently, is where judder starts to read.
+    if (median > target * 1.34) {
       this._autoQuality = 'low';
       this.setQuality('auto');
-      console.info(`[nightfall] auto quality -> low (avg ${(1 / avg).toFixed(1)} fps)`);
-    } else {
-      this._autoQuality = 'high';
+      console.info(`[nightfall] auto quality -> low (median ${(1 / median).toFixed(0)}fps, `
+                 + `display ~${Math.round(1 / target)}Hz)`);
     }
   }
 }

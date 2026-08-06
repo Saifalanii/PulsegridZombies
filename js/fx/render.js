@@ -38,6 +38,28 @@ import { P_SPARK, P_DOT, P_RING, P_SHARD, P_MOTE, P_TEXT } from './particles.js'
 
 const MAX_DPR = 2;
 
+/**
+ * Hard ceiling on how many device pixels we will ever paint, per frame.
+ *
+ * Device-pixel-ratio is the wrong knob to tune on its own. A modern phone reports dpr 3;
+ * clamped to 2 that is still 860x1864 on a 430pt screen — 1.6 million pixels, and every
+ * one of them is touched several times a frame (ground, entities, the bright-pass
+ * downscale, the bloom composite, the darkness mask, the vignette). Fill rate is the
+ * fixed cost that does not care how many zombies are on screen, which is exactly the
+ * shape of "constant lag, not by much".
+ *
+ * Worse, a 120Hz display halves the budget to 8.3ms without telling anyone, so a frame
+ * that was comfortable at 60 is suddenly marginal — and a frame that can't hold 120 but
+ * beats 60 lands in the judder band, which reads as permanent low-grade stutter rather
+ * than as a framerate drop.
+ *
+ * Budgeting total pixels instead is device-independent: it bounds the work directly
+ * rather than via a proxy that means different things on different screens. 1.15M is
+ * about 1.35x DPR on a large phone — still visibly sharper than 1x, and a ~30% cut in
+ * everything the post chain does.
+ */
+const PIXEL_BUDGET = 1_150_000;
+
 export class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
@@ -88,7 +110,12 @@ export class Renderer {
     // killing the render loop for good.
     const cssW = Math.max(1, window.innerWidth || 1);
     const cssH = Math.max(1, window.innerHeight || 1);
-    const dpr = Math.min(window.devicePixelRatio || 1, this.quality === 'low' ? 1.5 : MAX_DPR);
+    let dpr = Math.min(window.devicePixelRatio || 1, this.quality === 'low' ? 1.5 : MAX_DPR);
+    // Then clamp again by total pixels, so a big high-density screen doesn't quietly ask
+    // for three times the fill of a small one. See PIXEL_BUDGET.
+    const budget = this.quality === 'low' ? PIXEL_BUDGET * 0.62 : PIXEL_BUDGET;
+    const maxDpr = Math.sqrt(budget / (cssW * cssH));
+    dpr = Math.max(1, Math.min(dpr, maxDpr));
     this.w = cssW; this.h = cssH; this.dpr = dpr;
 
     this.canvas.width = Math.round(cssW * dpr);
@@ -582,6 +609,40 @@ export class Renderer {
   // _polySprite/spritePoly and glowArc removed in the dead-code sweep: the pre-rendered
   // polygon sheet and its cache served the old outline enemies, and the arc drew the
   // shield meter that no longer exists. _glowSprite below is still very much in use.
+
+  /**
+   * The contact shadow under a character, as one blit.
+   *
+   * This was a `beginPath` + `ellipse` + `fill` per body, every frame. Path filling is the
+   * most expensive thing Canvas2D does and there is one of these under every zombie, so a
+   * hundred bodies meant a hundred filled paths and two hundred globalAlpha writes before
+   * a single sprite was drawn — a cost that scales with the crowd but never with anything
+   * the player can see, since the result is always the same grey ellipse.
+   *
+   * Pre-rendered once and stretched, exactly like the glow sprites. The gradient edge is
+   * a bonus: the old hard-edged ellipse read as a sticker under the feet.
+   */
+  shadowEllipse(x, y, rad, alpha = 0.5) {
+    if (!this._shadowSprite) {
+      const S = 64;
+      const s = document.createElement('canvas');
+      s.width = s.height = S;
+      const c = s.getContext('2d');
+      const g = c.createRadialGradient(S / 2, S / 2, 0, S / 2, S / 2, S / 2);
+      g.addColorStop(0.00, 'rgba(0,0,0,1)');
+      g.addColorStop(0.55, 'rgba(0,0,0,0.92)');
+      g.addColorStop(0.82, 'rgba(0,0,0,0.35)');
+      g.addColorStop(1.00, 'rgba(0,0,0,0)');
+      c.fillStyle = g;
+      c.fillRect(0, 0, S, S);
+      this._shadowSprite = s;
+    }
+    const ctx = this.ctx;
+    const w = rad * 2.25, h = rad * 0.95;   // matches the old rx / rx*0.42 proportions
+    ctx.globalAlpha = alpha;
+    ctx.drawImage(this._shadowSprite, x - w / 2, y + 6 - h / 2, w, h);
+    ctx.globalAlpha = 1;
+  }
 
   /** Soft filled orb — used for the player core, pickups, projectile heads. */
   glowOrb(x, y, r, rgb, intensity = 1) {
