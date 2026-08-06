@@ -12,7 +12,7 @@
 // is the one that actually needs the bump — the *filename* did not change, so a cache-
 // first install would keep serving the superseded sheet indefinitely, and the new road
 // markings would never appear no matter how many times the player reloaded.
-const CACHE = 'nightfall-v3';
+const CACHE = 'nightfall-v4';
 
 // On localhost the cache-first strategy below happily serves the module you edited
 // thirty seconds ago, and you debug a file the page isn't running. Development gets
