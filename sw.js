@@ -25,7 +25,7 @@
 // v7: the world is now loaded from an authored map (assets/maps/), not generated.
 // v8: updated map with hand-painted collision layers.
 // v9: buildings solid whether painted or not (collision = painted UNION structure tiles).
-const CACHE = 'nightfall-v9';
+const CACHE = 'nightfall-v10';
 
 // On localhost the cache-first strategy below happily serves the module you edited
 // thirty seconds ago, and you debug a file the page isn't running. Development gets
