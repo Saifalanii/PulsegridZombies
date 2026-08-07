@@ -171,7 +171,7 @@ export class Run {
     // be cut off in, and 1500 units is barely 47 tiles across.
     const arenaSize = Math.round(2400 * this.mods.arenaScale);
     this.arena = { x: -arenaSize / 2, y: -arenaSize / 2, w: arenaSize, h: arenaSize };
-    this.world = new World(this.arena, config.seed);
+    this.world = new World(this.arena, config.seed, config.mapData || null);
 
     this.enemies = new Pool(MAX_ENEMIES, mkEnemy);
     this.bullets = new Pool(MAX_BULLETS, mkBullet);

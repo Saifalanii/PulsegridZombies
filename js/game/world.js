@@ -169,6 +169,31 @@ const ROAD_TILES = new Set([G_ROAD, G_ROAD2, G_CENTRE_V, G_CENTRE_H, G_CROSS_H, 
 //   412k pixels at startup and nothing at all per frame.
 const CITY_SRC = 'assets/city/simple-city-32.png';
 
+// ------------------------------------------------------------------ authored maps
+//
+// A map hand-drawn in a tile editor and exported as assets/maps/town.json, painted from
+// its own tileset (assets/maps/town-tiles.png, an 8-column grid of 32px tiles). When a
+// map is supplied, World renders and collides *it* instead of generating a procedural
+// city — the deliberate layout the player asked for, in place of the scattered one.
+//
+// 32px tiles, drawn at 2x like the city sheet, so one map tile is one 64px ground cell
+// (GTS) and two collision cells (TS) on a side. Authoring at 32px is therefore correct;
+// 64px art would come out doubled.
+const TOWN_SRC = 'assets/maps/town-tiles.png';
+const TOWN_COLS = 8;
+
+// Which tile ids are walkable ground rather than solid structure.
+//
+// Classified from the tileset art — grass, tarmac with markings, pavement, cobble — and
+// validated: it leaves 69% of the reference map open, the sane fraction for a town you
+// fight through. Everything not listed (buildings, fences, wrecks, props) is solid.
+const TOWN_WALKABLE = new Set([
+  0, 2, 3, 4, 5, 22, 23, 28, 29,                                        // bare ground / concrete
+  6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,          // grass
+  83, 84, 85, 86, 87, 88, 111, 116, 122, 169,                          // more grass
+  143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 156, 157, 158, 159, // road / pavement
+]);
+
 
 /**
  * Sprite rectangles within the city sheet, in source pixels: [sx, sy, sw, sh].
@@ -331,6 +356,13 @@ export function chestImage() {
   return CHEST;
 }
 
+// The authored-map tileset, tinted to night through the same loader as everything else.
+let TOWN = null;
+function townSheet() {
+  if (!TOWN) TOWN = loadCitySheet(TOWN_SRC);
+  return TOWN;
+}
+
 /** Lazily built once, shared process-wide. */
 let ATLAS = null;
 function atlas() {
@@ -349,7 +381,7 @@ function atlas() {
 
 /** Every image file this module can request, for the service worker shell list. */
 export function shellAssets() {
-  return [`./${CITY_SRC}`, `./${CHEST_SRC}`];
+  return [`./${CITY_SRC}`, `./${CHEST_SRC}`, `./${TOWN_SRC}`, './assets/maps/town.json'];
 }
 
 // ------------------------------------------------------------------ World
@@ -359,9 +391,11 @@ export class World {
    * @param {{x:number,y:number,w:number,h:number}} arena world-space bounds
    * @param {number} seed
    */
-  constructor(arena, seed) {
+  constructor(arena, seed, mapData = null) {
     this.atlas = atlas();
     this.arena = arena;
+    this.authored = null;
+    if (mapData) { this._loadAuthored(arena, mapData); return; }
     this.ox = arena.x;
     this.oy = arena.y;
     this.cols = Math.ceil(arena.w / TS);
@@ -387,6 +421,51 @@ export class World {
 
     // Preallocated merge scratch for the draw pass.
     this._visProps = new Int32Array(256);
+    this._visCount = 0;
+  }
+
+  /**
+   * Load a hand-authored map in place of generating one.
+   *
+   * The map's own dimensions become the arena — it is 67x40 tiles where the procedural
+   * arena was 37x37, so `arena` is resized in place (the same object Run holds, so its
+   * spawn clamping and camera bounds follow). Every tile is painted from the map's
+   * tileset; every non-walkable tile marks its 2x2 collision block solid. There are no
+   * props: buildings are part of the tile layer, so `props` stays empty and the whole
+   * depth-sorted prop pass simply finds nothing — the trade for authored layout is that
+   * you don't walk behind roofs, which a top-down authored map doesn't promise anyway.
+   */
+  _loadAuthored(arena, map) {
+    const W = map.mapWidth, H = map.mapHeight;
+    arena.w = W * GTS; arena.h = H * GTS;
+    arena.x = -arena.w / 2; arena.y = -arena.h / 2;
+    this.ox = arena.x; this.oy = arena.y;
+    this.gcols = W; this.grows = H;
+    this.cols = W * G_SUB; this.rows = H * G_SUB;
+
+    this.authored = new Int16Array(W * H).fill(-1);
+    this.ground = null;
+    this.solid = new Uint8Array(this.cols * this.rows);
+    this.claim = new Uint8Array(this.cols * this.rows);
+    this.props = [];
+    this.town = townSheet();
+
+    const markSolid = (gx, gy) => {
+      for (let sy = gy * G_SUB; sy < gy * G_SUB + G_SUB; sy++)
+        for (let sx = gx * G_SUB; sx < gx * G_SUB + G_SUB; sx++)
+          this.solid[sy * this.cols + sx] = 1;
+    };
+    for (const c of (map.layers[0].tiles || [])) {
+      const x = c.x, y = c.y, id = +c.id;
+      if (x < 0 || y < 0 || x >= W || y >= H) continue;
+      this.authored[y * W + x] = id;
+      if (!TOWN_WALKABLE.has(id)) markSolid(x, y);
+    }
+    // Solid border so nothing is pushed off the edge.
+    for (let x = 0; x < this.cols; x++) { this.solid[x] = 1; this.solid[(this.rows - 1) * this.cols + x] = 1; }
+    for (let y = 0; y < this.rows; y++) { this.solid[y * this.cols] = 1; this.solid[y * this.cols + this.cols - 1] = 1; }
+
+    this._visProps = new Int32Array(4);
     this._visCount = 0;
   }
 
@@ -892,15 +971,33 @@ export class World {
     const prevSmooth = ctx.imageSmoothingEnabled;
     ctx.imageSmoothingEnabled = false;
 
+    const halfW = r.viewW / 2 + GTS, halfH = r.viewH / 2 + GTS;
+    const x0 = Math.max(0, Math.floor((r.camX - halfW - this.ox) / GTS));
+    const x1 = Math.min(this.gcols - 1, Math.ceil((r.camX + halfW - this.ox) / GTS));
+    const y0 = Math.max(0, Math.floor((r.camY - halfH - this.oy) / GTS));
+    const y1 = Math.min(this.grows - 1, Math.ceil((r.camY + halfH - this.oy) / GTS));
+    const S = TILE_SRC * 2;   // 32px source cell
+
+    // Authored map: paint each tile from its own tileset, viewport-culled.
+    if (this.authored) {
+      const sheet = this.town;
+      if (sheet.complete) {
+        for (let gy = y0; gy <= y1; gy++) {
+          const wy = this.oy + gy * GTS, row = gy * this.gcols;
+          for (let gx = x0; gx <= x1; gx++) {
+            const id = this.authored[row + gx];
+            if (id < 0) continue;
+            ctx.drawImage(sheet, (id % TOWN_COLS) * S, ((id / TOWN_COLS) | 0) * S, S, S,
+                          this.ox + gx * GTS, wy, GTS + BLEED, GTS + BLEED);
+          }
+        }
+      }
+      ctx.imageSmoothingEnabled = prevSmooth;
+      return;
+    }
+
     const sheet = this.atlas.city;
     if (sheet.complete) {
-      const halfW = r.viewW / 2 + GTS, halfH = r.viewH / 2 + GTS;
-      const x0 = Math.max(0, Math.floor((r.camX - halfW - this.ox) / GTS));
-      const x1 = Math.min(this.gcols - 1, Math.ceil((r.camX + halfW - this.ox) / GTS));
-      const y0 = Math.max(0, Math.floor((r.camY - halfH - this.oy) / GTS));
-      const y1 = Math.min(this.grows - 1, Math.ceil((r.camY + halfH - this.oy) / GTS));
-
-      const S = TILE_SRC * 2;   // 32px source cell
       for (let gy = y0; gy <= y1; gy++) {
         const wy = this.oy + gy * GTS;
         const row = gy * this.gcols;

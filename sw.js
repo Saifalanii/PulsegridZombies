@@ -22,7 +22,8 @@
 // v6: city sheet redrawn again (clean roads, two new shopfronts), plus the drop chest.
 // The sheet's filename does not change, so without this bump a cache-first install keeps
 // serving the old roads forever.
-const CACHE = 'nightfall-v6.1';
+// v7: the world is now loaded from an authored map (assets/maps/), not generated.
+const CACHE = 'nightfall-v7';
 
 // On localhost the cache-first strategy below happily serves the module you edited
 // thirty seconds ago, and you debug a file the page isn't running. Development gets
@@ -91,6 +92,9 @@ const SHELL = [
   // path with no readers. tools/make-street-tiles.mjs still emits them.
   './assets/city/simple-city-32.png',
   './assets/city/chest.png',
+  // The authored map and its tileset — the world is loaded from these now.
+  './assets/maps/town-tiles.png',
+  './assets/maps/town.json',
 
   // The sword swings are small (170KB each) and they are combat feedback, so they do
   // belong in the atomic install — a silent weapon offline is a broken weapon.

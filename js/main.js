@@ -47,6 +47,13 @@ class Game {
     this.autoQualityChecked = false;
     this.deferredInstall = null;
 
+    // The hand-authored map. Fetched once; every Run built after it lands uses it in
+    // place of the procedural generator. Until it lands (a couple of KB, effectively the
+    // first frame) runs fall back to generation, which only matters for the menu's own
+    // ambient background if the player taps Play in that first instant.
+    this.mapData = null;
+    this._loadMap();
+
     this._applySettings();
     this._bindLifecycle();
     this._bindInstall();
@@ -180,8 +187,17 @@ class Game {
   // ------------------------------------------------------------ ambient
 
   /** A live but unplayed arena behind the menus. Enemies spawn, drift, and die to nothing. */
+  /** Load the authored map, then rebuild the menu background on it once it arrives. */
+  async _loadMap() {
+    try {
+      const res = await fetch('assets/maps/town.json');
+      if (res.ok) { this.mapData = await res.json(); this._startAmbient(); }
+    } catch { /* stay procedural */ }
+  }
+
   _startAmbient() {
     const cfg = makeRunConfig('practice');
+    cfg.mapData = this.mapData;
     this.ambient = new Run(cfg);
     this.ambient.player.alive = false;   // no shooting, no collision damage
     this.ambient.stats.magnet = 0;
@@ -207,6 +223,7 @@ class Game {
   beginRun() {
     const cfg = this.pendingConfig || makeRunConfig(this.lastMode, todayKey());
     this.pendingConfig = null;
+    cfg.mapData = this.mapData;
 
     // Spend the daily attempt now, at the point of no return. Doing this at run *end*
     // would mean a force-quit mid-run costs nothing and the seed can be re-rolled.
