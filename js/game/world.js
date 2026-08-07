@@ -429,18 +429,23 @@ export class World {
     // tarmac leaves room to dodge around an abandoned car instead of being funnelled into
     // it, which matters more here than it did in the reference, since nothing was chasing
     // whoever drew that map.
-    const SW = 4;                                   // street width, ground cells
-    // Blocks have to be much bigger than the streets between them, and were not: at
-    // 6-8 deep against a 3-wide street, 63% of the map came out as tarmac and only 21% as
-    // block interior. That is backwards — in a city the street is the corridor and the
-    // block is the substance — and it is the real reason this read as empty. You were
-    // mostly walking on road.
+    // Tuned against a city drawn by hand in a tile editor, measured with that map's own
+    // tileset so ground and structure were told apart by what the tile actually depicts,
+    // not guessed from frequency. Its proportions: 26.6% tarmac, 29.5% pavement, 13.2%
+    // grass, 30.7% built — with road corridors only 2 cells wide.
     //
-    // At 9-12 the street share drops to roughly 45%. Not the ~35% a real grid would give:
-    // the arena is 37 cells across against the 67 of the map this was measured from, and
-    // past this the grid gets so coarse there are only two avenues each way, which trades
-    // one kind of sparseness for another. Going further wants a bigger arena.
-    const BLOCK = 9 + Math.floor(rng.next() * 4);   // 9..12
+    // The surprising number is the pavement: there is more of it than road. That is most
+    // of why the reference reads as a city and a grid of wide roads reads as a retail
+    // park — beside a building you walk on kerb, not tarmac. The pavement ring the block
+    // pass lays down is what carries that here.
+    //
+    // Streets hold at 3, not the reference's 2. At 2 cells a street is 128 world px and an
+    // abandoned car is 86 of them, leaving a 40px gap for a 26px survivor with a horde
+    // behind them — the reference was drawn to be looked at, not to be chased through.
+    // Blocks are large (12-14) so the block interior dominates the road, as it does in
+    // the reference.
+    const SW = 3;                                   // street width, ground cells
+    const BLOCK = 12 + Math.floor(rng.next() * 3);  // 12..14
     const P = SW + BLOCK;
 
     // Centre the grid so the middle of the arena lands inside a block, not on tarmac —
@@ -507,10 +512,20 @@ export class World {
         const y0 = streetYs[bj] + SW, y1 = streetYs[bj + 1] - 1;
         if (x1 < x0 || y1 < y0) continue;
         if (x1 < 0 || y1 < 0 || x0 >= gcols || y0 >= grows) continue;
-        blocks.push({ x0, y0, x1, y1 });
-        // pavement ring
-        for (let x = x0; x <= x1; x++) { this._setG(x, y0, G_WALK); this._setG(x, y1, G_WALK); }
-        for (let y = y0; y <= y1; y++) { this._setG(x0, y, G_WALK); this._setG(x1, y, G_WALK); }
+        // Pavement ring, two cells thick.
+        //
+        // A one-cell ring gave 5% pavement against the reference's 30%, and left block
+        // interiors as vast empty grass lots. The reference's defining proportion is that
+        // there is more kerb than road — so the ring is the width the block can spare
+        // (two cells, or one if the block is too small to keep an interior), and it both
+        // carries that proportion and shrinks the hollow middle to something a city would
+        // actually have.
+        const ring = (x1 - x0 >= 5 && y1 - y0 >= 5) ? 2 : 1;
+        blocks.push({ x0, y0, x1, y1, ring });
+        for (let k = 0; k < ring; k++) {
+          for (let x = x0 + k; x <= x1 - k; x++) { this._setG(x, y0 + k, G_WALK); this._setG(x, y1 - k, G_WALK); }
+          for (let y = y0 + k; y <= y1 - k; y++) { this._setG(x0 + k, y, G_WALK); this._setG(x1 - k, y, G_WALK); }
+        }
       }
     }
 
@@ -519,9 +534,14 @@ export class World {
     // city being taken back, whereas grass everywhere is just a field with sheds on it.
     const plaza = this._blockAt(blocks, gcx, gcy);
     for (const b of blocks) {
-      const paved = rng.next() < 0.45;
-      for (let y = b.y0 + 1; y < b.y1; y++) {
-        for (let x = b.x0 + 1; x < b.x1; x++) {
+      // Interiors lean paved, not grassed. The reference is 30% pavement against 13%
+      // grass — a city where the green is the exception — and filling big block interiors
+      // mostly with grass inverted that into 40% grass and read as parkland with towers
+      // on the edge. Grass stays as the minority "gone to seed" note it was meant to be.
+      const paved = rng.next() < 0.72;
+      const r = b.ring || 1;   // fill only what the pavement ring didn't take
+      for (let y = b.y0 + r; y <= b.y1 - r; y++) {
+        for (let x = b.x0 + r; x <= b.x1 - r; x++) {
           this._setG(x, y, paved ? G_LOT : G_GRASS);
         }
       }
@@ -557,14 +577,16 @@ export class World {
     const SHORT = ['shop_red', 'shop_white', 'shop_blue'];
     for (const b of blocks) {
       if (b === plaza) continue;
-      // Bounded by the block *interior*, not the block. x0/y0/x1/y1 are the pavement
-      // ring, and the claim pass marks pavement, so a building started one tile inside
-      // the ring still overlaps it and _isFree rejects every single placement — which is
-      // how this first ran: two buildings on the whole map, no error anywhere.
-      const txStart = (b.x0 + 1) * G_SUB;
-      const txEnd = b.x1 * G_SUB;
+      // Bounded by the block *interior* — inside the pavement ring, whose cells the claim
+      // pass marks. A building started on the ring overlaps claimed ground and _isFree
+      // rejects every placement silently; when the ring went from one cell to two, the
+      // old `+1` offset landed on the ring and produced zero buildings on the whole map.
+      // Offsetting by `b.ring` keeps the frontage on the block's own interior edge.
+      const r = b.ring || 1;
+      const txStart = (b.x0 + r) * G_SUB;
+      const txEnd = (b.x1 - r + 1) * G_SUB;
       // Depth available behind the frontage decides whether a tower fits at all.
-      const depthTiles = (b.y1 - b.y0 - 1) * G_SUB;
+      const depthTiles = (b.y1 - b.y0 - 2 * r) * G_SUB;
 
       // A row of frontages, laid left to right until the block runs out.
       //
@@ -588,8 +610,8 @@ export class World {
         }
       };
 
-      // The street-facing row, along the block's bottom edge.
-      row(b.y1 * G_SUB - 1, false, true);
+      // The street-facing row, on the interior edge just inside the bottom pavement.
+      row((b.y1 - r + 1) * G_SUB - 1, false, true);
 
       // A second row along the top of the block, where there's depth for it.
       //
@@ -599,7 +621,7 @@ export class World {
       // is capped to short buildings — a tower here would tuck its facade against the row
       // in front and occlude it — and only runs when the block is deep enough that the
       // two rows won't collide, which _placeProp would reject anyway but silently.
-      if (b.y1 - b.y0 >= 6) row((b.y0 + 1) * G_SUB, true, false);
+      if (b.y1 - b.y0 >= 6) row((b.y0 + r) * G_SUB, true, false);
     }
 
     // The plaza gets no building of its own. It is the one piece of open ground on the
