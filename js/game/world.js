@@ -182,16 +182,20 @@ const CITY_SRC = 'assets/city/simple-city-32.png';
 const TOWN_SRC = 'assets/maps/town-tiles.png';
 const TOWN_COLS = 8;
 
-// Which tile ids are walkable ground rather than solid structure.
+// Which tile ids are walkable ground, when the map doesn't say for itself.
 //
-// Classified from the tileset art — grass, tarmac with markings, pavement, cobble — and
-// validated: it leaves 69% of the reference map open, the sane fraction for a town you
-// fight through. Everything not listed (buildings, fences, wrecks, props) is solid.
+// Hard surfaces only — tarmac, road markings, pavement, concrete, cobble. Grass and
+// foliage are NOT here: in a city you walk on the street and go *around* the planted
+// ground, so bushes, hedges and verges block like the buildings do. That matches what
+// the map actually looks like (you stand on the crosswalk, not in the hedge) and it is
+// the fix for walking straight through tall grass.
+//
+// This is only the fallback. If a tile in the map carries its own `collider` flag —
+// painted in the editor — that wins, so any map can override this per tile: make a park
+// walkable, make a specific post passable, whatever the author drew.
 const TOWN_WALKABLE = new Set([
-  0, 2, 3, 4, 5, 22, 23, 28, 29,                                        // bare ground / concrete
-  6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21,          // grass
-  83, 84, 85, 86, 87, 88, 111, 116, 122, 169,                          // more grass
-  143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 156, 157, 158, 159, // road / pavement
+  2, 3, 4, 5, 22, 23, 28, 29,                                           // concrete / pavement
+  143, 144, 145, 146, 147, 148, 149, 150, 151, 152, 156, 157, 158, 159, // road / cobble
 ]);
 
 
@@ -459,7 +463,10 @@ export class World {
       const x = c.x, y = c.y, id = +c.id;
       if (x < 0 || y < 0 || x >= W || y >= H) continue;
       this.authored[y * W + x] = id;
-      if (!TOWN_WALKABLE.has(id)) markSolid(x, y);
+      // The editor's own collision flag is the authority when the map provides one;
+      // the id classification is only the fallback for maps that don't paint collision.
+      const solidTile = typeof c.collider === 'boolean' ? c.collider : !TOWN_WALKABLE.has(id);
+      if (solidTile) markSolid(x, y);
     }
     // Solid border so nothing is pushed off the edge.
     for (let x = 0; x < this.cols; x++) { this.solid[x] = 1; this.solid[(this.rows - 1) * this.cols + x] = 1; }
