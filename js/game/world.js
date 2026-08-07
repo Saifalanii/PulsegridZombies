@@ -1079,9 +1079,14 @@ export class World {
   //
   // Neither may exceed TS. The single-neighbour test below is only equivalent to "how
   // far is the edge of this solid region" while the inset cannot reach past one cell.
-  // Painted-collision blobs of at most this many tiles are scenery, not architecture, and
-  // stop blocking entirely. A tree is 1-2 tiles; a shed is dozens.
-  static SMALL_OBSTACLE = 4;
+  // Painted-collision blobs of at most this many tiles stop blocking entirely.
+  //
+  // Zero, i.e. off, and that is the right default: it exists for maps whose trees are
+  // painted solid because the author had no better option, and guessing "small means
+  // scenery" costs real authoring once they do. This map paints trees flat and
+  // non-collider on purpose, and its deliberate 1-, 2- and 4-tile blobs are posts, bins
+  // and benches that are supposed to block. When the author is specific, believe them.
+  static SMALL_OBSTACLE = 0;
 
   static TOP_PX = 26;   // passable band above a footprint — most of a tile's upper half
   static SIDE_PX = 20;  // shaved off each exposed vertical edge

@@ -29,7 +29,7 @@
 // installed player on the old world.js would still snag on canopies the map no longer
 // collides. Stale-while-revalidate would fix it on the *second* launch; the bump fixes it
 // on the first.
-const CACHE = 'nightfall-v13';
+const CACHE = 'nightfall-v14';
 
 // On localhost the cache-first strategy below happily serves the module you edited
 // thirty seconds ago, and you debug a file the page isn't running. Development gets
