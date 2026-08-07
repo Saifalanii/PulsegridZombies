@@ -462,14 +462,19 @@ export class World {
 
     // Sprite Fusion exports one layer per drawing layer, each with a `collider` flag.
     // Every layer is drawn — a collider layer is real painted art (buildings, props) that
-    // also blocks, not an invisible mask. Skipping them left blank holes where a building
-    // lived only on a collision layer. So: draw all layers in array order (bottom-first),
-    // and take collision from the ones flagged `collider`.
+    // also blocks, not an invisible mask.
+    //
+    // Draw the non-collider layers first (the ground) and the collider layers last, on
+    // top. This makes the one invariant that matters hold: what blocks is what you see.
+    // Drawing them in raw export order put the collision art *under* the ground layer, so
+    // a building's tile was hidden beneath pavement while its cell stayed solid — an
+    // invisible wall on open-looking ground. Colliders on top removes that class of bug
+    // regardless of how the editor happens to order its export.
     const layers = map.layers || [];
     const colliderLayers = layers.filter((L) => L.collider);
-    const visualLayers = layers;
+    const drawOrder = [...layers.filter((L) => !L.collider), ...colliderLayers];
 
-    this.authoredLayers = visualLayers.map((L) => {
+    this.authoredLayers = drawOrder.map((L) => {
       const grid = new Int16Array(W * H).fill(-1);
       for (const c of (L.tiles || [])) if (inb(c.x, c.y)) grid[c.y * W + c.x] = +c.id;
       return grid;
