@@ -998,8 +998,16 @@ export class World {
   // The flow field deliberately keeps using whole cells — pathing conservatively around
   // a wall is free, and routing the horde through a gap the width of an eave would look
   // like a bug.
-  static FOOT_H = 0.62;
-  static SIDE = 0.18;
+  // Both are in world pixels, and that is deliberate: they used to be fractions of a
+  // collision cell, which quietly made them a quarter of what they read as. An authored
+  // tile is 32px drawn at 2×, so it covers a 2×2 block of 32px collision cells — a tree
+  // is 64 world pixels wide, and shaving "18% of a cell" took under 6px off it. Sized in
+  // pixels against the tile, a canopy is genuinely a canopy.
+  //
+  // Neither may exceed TS. The single-neighbour test below is only equivalent to "how
+  // far is the edge of this solid region" while the inset cannot reach past one cell.
+  static TOP_PX = 26;   // passable band above a footprint — most of a tile's upper half
+  static SIDE_PX = 20;  // shaved off each exposed vertical edge
 
   /** True if the *cell* is solid. Out of bounds counts as solid: the arena has walls. */
   _solidCell(gx, gy) {
@@ -1016,9 +1024,9 @@ export class World {
 
     const lx = (x - this.ox) - gx * TS, ly = (y - this.oy) - gy * TS;
     // Above the footprint, with open sky above — walk under the canopy.
-    if (ly < TS * (1 - World.FOOT_H) && !this._solidCell(gx, gy - 1)) return false;
+    if (ly < World.TOP_PX && !this._solidCell(gx, gy - 1)) return false;
     // Past an exposed side — squeeze by the trunk.
-    const s = TS * World.SIDE;
+    const s = World.SIDE_PX;
     if (lx < s && !this._solidCell(gx - 1, gy)) return false;
     if (lx > TS - s && !this._solidCell(gx + 1, gy)) return false;
     return true;
