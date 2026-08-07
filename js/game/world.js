@@ -419,8 +419,28 @@ export class World {
     // a 3-cell street is 192 world px, three times the survivor's height, which is about
     // right for two lanes plus the room a wreck needs to be an obstacle rather than a
     // wall. Blocks are deep enough for a building (up to 10 collision tiles) plus a yard.
-    const SW = 3;                                   // street width, ground cells
-    const BLOCK = 6 + Math.floor(rng.next() * 3);   // 6..8
+    // Street width and block depth, tuned against a city drawn by hand in a tile editor
+    // and then measured rather than eyeballed: its median open corridor is 4 cells and
+    // 37.5% of its area is built on, where this generator was producing 3-cell streets
+    // with only 14-19% built. Narrow roads and empty blocks is what reads as suburban;
+    // wide roads and packed blocks is what reads as a city.
+    //
+    // The wider street is also the safer of the two changes for play: 256 world px of
+    // tarmac leaves room to dodge around an abandoned car instead of being funnelled into
+    // it, which matters more here than it did in the reference, since nothing was chasing
+    // whoever drew that map.
+    const SW = 4;                                   // street width, ground cells
+    // Blocks have to be much bigger than the streets between them, and were not: at
+    // 6-8 deep against a 3-wide street, 63% of the map came out as tarmac and only 21% as
+    // block interior. That is backwards — in a city the street is the corridor and the
+    // block is the substance — and it is the real reason this read as empty. You were
+    // mostly walking on road.
+    //
+    // At 9-12 the street share drops to roughly 45%. Not the ~35% a real grid would give:
+    // the arena is 37 cells across against the 67 of the map this was measured from, and
+    // past this the grid gets so coarse there are only two avenues each way, which trades
+    // one kind of sparseness for another. Going further wants a bigger arena.
+    const BLOCK = 9 + Math.floor(rng.next() * 4);   // 9..12
     const P = SW + BLOCK;
 
     // Centre the grid so the middle of the arena lands inside a block, not on tarmac —
@@ -541,21 +561,45 @@ export class World {
       // ring, and the claim pass marks pavement, so a building started one tile inside
       // the ring still overlaps it and _isFree rejects every single placement — which is
       // how this first ran: two buildings on the whole map, no error anywhere.
-      const tyBase = b.y1 * G_SUB - 1;              // last collision row of the last interior cell
-      let tx = (b.x0 + 1) * G_SUB;
+      const txStart = (b.x0 + 1) * G_SUB;
       const txEnd = b.x1 * G_SUB;
       // Depth available behind the frontage decides whether a tower fits at all.
       const depthTiles = (b.y1 - b.y0 - 1) * G_SUB;
-      let guard = 0;
-      while (tx < txEnd && guard++ < 12) {
-        const pool = depthTiles >= 10 && rng.next() < 0.45 ? TALL : SHORT;
-        const key = pool[Math.floor(rng.next() * pool.length)];
-        const def = this.atlas.props[key];
-        const tw = Math.ceil((def.w * TILE_SCALE) / TS), th = Math.ceil((def.h * TILE_SCALE) / TS);
-        if (tx + tw > txEnd) break;
-        this._placeProp(key, tx, tyBase - th + 1, rng, false);
-        tx += tw + (rng.next() < 0.5 ? 1 : 2);
-      }
+
+      // A row of frontages, laid left to right until the block runs out.
+      //
+      // `anchorTop` decides which edge the row is measured from: the front row hangs its
+      // *base* on the block's bottom edge, the back row hangs its *top* on the block's
+      // top edge. Buildings differ in height, so this has to be resolved per building
+      // rather than from one precomputed y.
+      const row = (edgeTile, anchorTop, allowTall) => {
+        let tx = txStart, guard = 0;
+        while (tx < txEnd && guard++ < 12) {
+          const wantTall = allowTall && depthTiles >= 10 && rng.next() < 0.45;
+          const pool = wantTall ? TALL : SHORT;
+          const key = pool[Math.floor(rng.next() * pool.length)];
+          const def = this.atlas.props[key];
+          const tw = Math.ceil((def.w * TILE_SCALE) / TS), th = Math.ceil((def.h * TILE_SCALE) / TS);
+          if (tx + tw > txEnd) break;
+          // _placeProp takes the top-left tile, so anchoring the top *is* the edge, and
+          // anchoring the base backs up by the building's own height.
+          this._placeProp(key, tx, anchorTop ? edgeTile : edgeTile - th + 1, rng, false);
+          tx += tw + (rng.next() < 0.5 ? 1 : 2);
+        }
+      };
+
+      // The street-facing row, along the block's bottom edge.
+      row(b.y1 * G_SUB - 1, false, true);
+
+      // A second row along the top of the block, where there's depth for it.
+      //
+      // This is the density half of the tuning. One row per block leaves the middle of
+      // every block empty, which is what made the map read as sheds in a field: a real
+      // block is built on from both streets and hollow only in the middle. The back row
+      // is capped to short buildings — a tower here would tuck its facade against the row
+      // in front and occlude it — and only runs when the block is deep enough that the
+      // two rows won't collide, which _placeProp would reject anyway but silently.
+      if (b.y1 - b.y0 >= 6) row((b.y0 + 1) * G_SUB, true, false);
     }
 
     // The plaza gets no building of its own. It is the one piece of open ground on the
