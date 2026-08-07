@@ -977,12 +977,28 @@ export class World {
 
   // ------------------------------------------------------------ collision
 
+  // How much of a solid cell's height actually blocks, measured from its bottom edge.
+  // A tile is authored as a whole square, but the *thing* on it — a tree, a post, a
+  // lamp — stands on the lower part of the square and its top half is canopy, sign or
+  // sky that the survivor should pass in front of, not bump into. Blocking only the
+  // footprint means a map painted the obvious way (collide the tile the tree is on)
+  // behaves the way it looks, with no per-tile authoring to separate trunk from leaves.
+  //
+  // Stacked solids stay honest: the passable strip at the top of a cell is reachable
+  // only from the cell above it, so inside a wall it is walled off anyway, and at a
+  // wall's top edge it reads as tucking under the eave. The flow field deliberately
+  // keeps using whole cells — pathing conservatively around a wall is free, and routing
+  // the horde through a strip the width of an eave would look like a bug.
+  static FOOT_H = 0.62;
+
   /** @returns {boolean} true if world position (x, y) is inside something solid. */
   solidAt(x, y) {
     const gx = Math.floor((x - this.ox) / TS);
     const gy = Math.floor((y - this.oy) / TS);
     if (gx < 0 || gy < 0 || gx >= this.cols || gy >= this.rows) return true;
-    return this.solid[gy * this.cols + gx] === 1;
+    if (this.solid[gy * this.cols + gx] !== 1) return false;
+    // Inside a solid cell, but above its footprint — walk under it.
+    return (y - this.oy) - gy * TS >= TS * (1 - World.FOOT_H);
   }
 
   /** True if any of the four corners of the r-box around (x,y) is solid. */
