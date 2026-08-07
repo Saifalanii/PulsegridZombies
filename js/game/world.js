@@ -461,12 +461,13 @@ export class World {
     const inb = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
 
     // Sprite Fusion exports one layer per drawing layer, each with a `collider` flag.
-    // A collider layer is a collision mask — its cells are solid and it is not drawn.
-    // Every other layer is visual; they stack bottom-to-top in array order.
+    // Every layer is drawn — a collider layer is real painted art (buildings, props) that
+    // also blocks, not an invisible mask. Skipping them left blank holes where a building
+    // lived only on a collision layer. So: draw all layers in array order (bottom-first),
+    // and take collision from the ones flagged `collider`.
     const layers = map.layers || [];
     const colliderLayers = layers.filter((L) => L.collider);
-    const visualLayers = layers.filter((L) => !L.collider);
-    if (!visualLayers.length && layers.length) visualLayers.push(layers[0]); // all-collider export: still draw it
+    const visualLayers = layers;
 
     this.authoredLayers = visualLayers.map((L) => {
       const grid = new Int16Array(W * H).fill(-1);
@@ -480,14 +481,11 @@ export class World {
     // the solid cells: if it blocks you it hides you, one rule the author controls just by
     // painting collision. Each becomes a depth-sorted prop below (see the note there), so
     // its own tile is drawn a second time over anything standing lower on the screen.
-    // Solidity is the UNION of two sources, not one or the other:
-    //   - every cell painted on a collision layer, and
-    //   - every cell whose visual tile is a structure (not a walkable surface).
-    // Obeying the painted layer alone was the bug behind buildings you could walk into
-    // and zombies spawning inside them: any building the author didn't hand-paint stayed
-    // walkable. A building tile is always solid now; the painted layer adds to that
-    // (blocking a bit of open road, say), it never subtracts. Occluders match solids —
-    // if it blocks you it hides you.
+    // Solidity, and the cells you walk behind, come from the collision the author painted
+    // — nothing guessed. The id-classification fallback is only for maps that ship no
+    // collision layer at all; used *alongside* a painted layer it produces invisible walls,
+    // because that classification is calibrated to one tileset and every map brings its own,
+    // so an id that is road in this tileset can be a wall in the table. Trust the paint.
     const marked = new Uint8Array(W * H);
     const addOccluder = (gx, gy) => {
       const key = gy * W + gx;
@@ -495,10 +493,13 @@ export class World {
       marked[key] = 1;
       markSolid(gx, gy);
     };
-    for (const L of colliderLayers) for (const c of (L.tiles || [])) if (inb(c.x, c.y)) addOccluder(c.x, c.y);
-    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-      const id = this.authored[y * W + x];
-      if (id >= 0 && !TOWN_WALKABLE.has(id)) addOccluder(x, y);
+    if (colliderLayers.length) {
+      for (const L of colliderLayers) for (const c of (L.tiles || [])) if (inb(c.x, c.y)) addOccluder(c.x, c.y);
+    } else {
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const id = this.authored[y * W + x];
+        if (id >= 0 && !TOWN_WALKABLE.has(id)) addOccluder(x, y);
+      }
     }
     const occluders = [];
     for (let i = 0; i < marked.length; i++) if (marked[i]) occluders.push(i);
