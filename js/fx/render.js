@@ -284,8 +284,16 @@ export class Renderer {
     ctx.globalCompositeOperation = 'source-over';
     ctx.globalAlpha = 1;
 
-    this._bloom(juice);
-    if (this.quality === 'high' && juice.chroma > 0.015) this._chroma(juice);
+    // Bloom is the most expensive thing in the frame and it runs unconditionally — it was
+    // never gated, so "low quality" still paid for it in full. That is why lowering
+    // quality did nothing for the lag: low shrank the bloom buffer but still ran the same
+    // three full-canvas reads and the same ctx.filter blur, which are the two operations
+    // iOS Safari handles worst. On low it is now skipped outright. The darkness pass stays
+    // — it is the game's whole look, and it is one gradient blit, not a readback.
+    if (this.quality === 'high') {
+      this._bloom(juice);
+      if (juice.chroma > 0.015) this._chroma(juice);
+    }
 
     this._darkness(palette, juice);
     this._vignettes(palette, juice);
@@ -334,9 +342,11 @@ export class Renderer {
     br.clearRect(0, 0, bw, bh);
     br.drawImage(this.canvas, 0, 0, bw, bh);
     br.globalCompositeOperation = 'multiply';
-    br.drawImage(this.canvas, 0, 0, bw, bh);
-    br.drawImage(this.canvas, 0, 0, bw, bh);   // cubed: x^3, not x^2
+    br.drawImage(this.canvas, 0, 0, bw, bh);   // squared: x^2
     br.globalCompositeOperation = 'source-over';
+    // Was cubed (a third read) for a slightly tighter threshold. Reading the live canvas
+    // as a texture is the expensive half of this pass on iOS, so the third read cost more
+    // than the visual gain — squaring already collapses the mid-tones almost as hard.
 
     b.setTransform(1, 0, 0, 1, 0, 0);
     b.globalCompositeOperation = 'source-over';
