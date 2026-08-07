@@ -1063,6 +1063,10 @@ export class Run {
     const p = this.player;
     const pool = this.enemies;
 
+    // Rebuild the shared shortest-path field toward the survivor. Self-throttling: it only
+    // does the sweep when the survivor has crossed into a new tile.
+    if (p.alive) this.world.computeFlow(p.x, p.y);
+
     for (let i = pool.active - 1; i >= 0; i--) {
       // An attack below can trigger Spiked Vest, whose shockwave may kill several bodies
       // in one call — re-clamp before touching items[i].
@@ -1086,6 +1090,16 @@ export class Run {
       const d = Math.hypot(dx, dy) || 1;
       let nx = dx / d, ny = dy / d;
       const speed = def.speed * e.speedScale;
+
+      // Steer down the flow field — the path around walls — instead of straight at the
+      // survivor. Only the pursuers: circle (screamer) and standoff (spitter) hold a
+      // radius and need the true bearing for their own maths. flowDir returns null when
+      // the body is off the field or already on the survivor's tile, so close-up facing
+      // and attack aiming still use the direct vector.
+      if (def.behavior !== 'circle' && def.behavior !== 'standoff') {
+        const fd = this.world.flowDir(e.x, e.y);
+        if (fd) { nx = fd[0]; ny = fd[1]; }
+      }
 
       // ---------------------------------------------------------- melee
       //

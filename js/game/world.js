@@ -1008,6 +1008,71 @@ export class World {
     if (!this.blocked(ent.x, ny, r)) ent.y = ny; else ent.vy *= -0.15;
   }
 
+  // ------------------------------------------------------------ flow field
+  //
+  // One shared shortest-path field, so the horde routes around buildings and trees
+  // instead of grinding on them. A breadth-first sweep out from the survivor fills every
+  // reachable cell with its step-distance to them; a zombie then just walks toward the
+  // neighbour cell with the lower number. The whole crowd reads the one field — the cost
+  // is a single sweep, not pathfinding per body — and it is only rebuilt when the survivor
+  // crosses into a new tile, which is a few times a second at a walk.
+
+  /** Rebuild the field from a world point. No-op if the source cell hasn't changed. */
+  computeFlow(px, py) {
+    const cols = this.cols, rows = this.rows, n = cols * rows;
+    const sx = clamp(Math.floor((px - this.ox) / TS), 0, cols - 1);
+    const sy = clamp(Math.floor((py - this.oy) / TS), 0, rows - 1);
+    const start = sy * cols + sx;
+    if (this._flow && start === this._flowStart) return;   // survivor still in the same cell
+    if (!this._flow) { this._flow = new Int32Array(n); this._flowQ = new Int32Array(n); }
+    const flow = this._flow, q = this._flowQ;
+    flow.fill(-1);
+    // If the survivor is somehow in a wall, seed the nearest open cell so the field exists.
+    let seed = start;
+    if (this.solid[seed]) { if (this.nearestOpen(px, py, 8) === false) {
+      seed = clamp(Math.floor((this._oy - this.oy) / TS), 0, rows - 1) * cols
+           + clamp(Math.floor((this._ox - this.ox) / TS), 0, cols - 1);
+    } }
+    this._flowStart = start;
+    let head = 0, tail = 0;
+    flow[seed] = 0; q[tail++] = seed;
+    while (head < tail) {
+      const c = q[head++], d = flow[c] + 1, cx = c % cols, cy = (c / cols) | 0;
+      if (cx + 1 < cols) { const i = c + 1; if (!this.solid[i] && flow[i] < 0) { flow[i] = d; q[tail++] = i; } }
+      if (cx - 1 >= 0)   { const i = c - 1; if (!this.solid[i] && flow[i] < 0) { flow[i] = d; q[tail++] = i; } }
+      if (cy + 1 < rows) { const i = c + cols; if (!this.solid[i] && flow[i] < 0) { flow[i] = d; q[tail++] = i; } }
+      if (cy - 1 >= 0)   { const i = c - cols; if (!this.solid[i] && flow[i] < 0) { flow[i] = d; q[tail++] = i; } }
+    }
+  }
+
+  /**
+   * Unit vector at (x, y) pointing down the field toward the survivor, or null if the
+   * point is off the field (in a wall, or a pocket the sweep never reached — the caller
+   * then falls back to steering straight at the player).
+   */
+  flowDir(x, y) {
+    const flow = this._flow;
+    if (!flow) return null;
+    const cols = this.cols, rows = this.rows;
+    const cx = clamp(Math.floor((x - this.ox) / TS), 0, cols - 1);
+    const cy = clamp(Math.floor((y - this.oy) / TS), 0, rows - 1);
+    const here = flow[cy * cols + cx];
+    if (here < 0) return null;
+    let best = here, bx = 0, by = 0;
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      if (!dx && !dy) continue;
+      const nx = cx + dx, ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= cols || ny >= rows) continue;
+      // Don't cut a diagonal through a wall corner.
+      if (dx && dy && (this.solid[cy * cols + nx] || this.solid[ny * cols + cx])) continue;
+      const v = flow[ny * cols + nx];
+      if (v >= 0 && v < best) { best = v; bx = dx; by = dy; }
+    }
+    if (!bx && !by) return null;
+    const l = Math.hypot(bx, by);
+    return [bx / l, by / l];
+  }
+
   /** Nearest walkable position to (x, y), searched outward. Used to place spawns. */
   nearestOpen(x, y, r) {
     if (!this.blocked(x, y, r)) return true;
