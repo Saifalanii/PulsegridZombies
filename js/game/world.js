@@ -509,6 +509,8 @@ export class World {
     const occluders = [];
     for (let i = 0; i < marked.length; i++) if (marked[i]) occluders.push(i);
 
+    this._openSmallObstacles(marked, W, H);
+
     // Turn each occluder cell into a prop so the run's depth pass draws it over any body
     // whose feet are above the cell's base — the walk-behind effect. The visual tile is
     // whatever the top visual layer shows there; a collider cell with no art (a pure
@@ -529,6 +531,53 @@ export class World {
 
     this._visProps = new Int32Array(4);
     this._visCount = 0;
+  }
+
+  /**
+   * Make small scenery walk-through: a tree, a post or a lamp stops blocking, while
+   * buildings, walls and fences keep every bit of their collision.
+   *
+   * The split is by size, not by tile id, because id means nothing across tilesets — the
+   * same number is a roof in one and a hedge in the next. A building is a big connected
+   * blob of painted collision; a tree is one or two tiles standing on their own. So the
+   * painted collision is split into 4-connected components and anything at or under
+   * SMALL_OBSTACLE tiles is un-solidified. Four-connected on purpose: a tree touching a
+   * wall only at a corner should stay its own small thing, not inherit the wall's size.
+   *
+   * They still *draw*, and still occlude — walking through a canopy while it passes in
+   * front of you reads fine, and it is the trade the author asked for. What this buys is
+   * that no amount of shaving footprints can ever make a lone tree snag you, and the map
+   * needs no re-painting to get it.
+   */
+  _openSmallObstacles(marked, W, H) {
+    const seen = new Uint8Array(W * H);
+    const stack = [];
+    const comp = [];
+    let freed = 0;
+    for (let s = 0; s < marked.length; s++) {
+      if (!marked[s] || seen[s]) continue;
+      comp.length = 0;
+      stack.length = 0;
+      stack.push(s); seen[s] = 1;
+      while (stack.length) {
+        const c = stack.pop();
+        comp.push(c);
+        const cx = c % W, cy = (c / W) | 0;
+        if (cx + 1 < W) { const n = c + 1; if (marked[n] && !seen[n]) { seen[n] = 1; stack.push(n); } }
+        if (cx - 1 >= 0) { const n = c - 1; if (marked[n] && !seen[n]) { seen[n] = 1; stack.push(n); } }
+        if (cy + 1 < H) { const n = c + W; if (marked[n] && !seen[n]) { seen[n] = 1; stack.push(n); } }
+        if (cy - 1 >= 0) { const n = c - W; if (marked[n] && !seen[n]) { seen[n] = 1; stack.push(n); } }
+      }
+      if (comp.length > World.SMALL_OBSTACLE) continue;
+      for (const cell of comp) {
+        const gx = cell % W, gy = (cell / W) | 0;
+        for (let sy = gy * G_SUB; sy < gy * G_SUB + G_SUB; sy++)
+          for (let sx = gx * G_SUB; sx < gx * G_SUB + G_SUB; sx++)
+            this.solid[sy * this.cols + sx] = 0;
+      }
+      freed += comp.length;
+    }
+    return freed;
   }
 
   // ------------------------------------------------------------ generation
@@ -1006,6 +1055,10 @@ export class World {
   //
   // Neither may exceed TS. The single-neighbour test below is only equivalent to "how
   // far is the edge of this solid region" while the inset cannot reach past one cell.
+  // Painted-collision blobs of at most this many tiles are scenery, not architecture, and
+  // stop blocking entirely. A tree is 1-2 tiles; a shed is dozens.
+  static SMALL_OBSTACLE = 4;
+
   static TOP_PX = 26;   // passable band above a footprint — most of a tile's upper half
   static SIDE_PX = 20;  // shaved off each exposed vertical edge
 
