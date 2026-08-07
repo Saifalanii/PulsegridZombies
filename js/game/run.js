@@ -1872,6 +1872,7 @@ export class Run {
 
     this.world.drawGround(r);
     r.drawEdges(this.palette, this.arena);
+    if (window.SHOW_COLLISION) this._drawCollisionDebug(r);
 
     // Lantern spill on the ground, under everything that stands on it.
     //
@@ -2070,6 +2071,34 @@ export class Run {
    * the very bottom edge of the sprite, so a foot-level test flickers on and off as you
    * walk along a building's base line.
    */
+  /**
+   * Paint what actually blocks, in red, over the world. `SHOW_COLLISION = true` in the
+   * console turns it on.
+   *
+   * Diagnosing "there's an invisible wall here" from a screenshot is guesswork — the whole
+   * problem is that the wall is invisible. This draws exactly the shape the collision test
+   * uses, insets and all, so a phantom wall is something to point at rather than describe.
+   */
+  _drawCollisionDebug(r) {
+    const w = this.world, ctx = r.ctx;
+    ctx.save();
+    ctx.fillStyle = 'rgba(255,40,40,0.35)';
+    const x0 = Math.max(0, Math.floor((this.player.x - w.ox - 900) / TS));
+    const x1 = Math.min(w.cols, Math.ceil((this.player.x - w.ox + 900) / TS));
+    const y0 = Math.max(0, Math.floor((this.player.y - w.oy - 700) / TS));
+    const y1 = Math.min(w.rows, Math.ceil((this.player.y - w.oy + 700) / TS));
+    for (let gy = y0; gy < y1; gy++) for (let gx = x0; gx < x1; gx++) {
+      if (w.solid[gy * w.cols + gx] !== 1) continue;
+      // Mirror solidAt's insets so the overlay shows the real footprint, not the cell.
+      let x = w.ox + gx * TS, y = w.oy + gy * TS, cw = TS, ch = TS;
+      if (!w._solidCell(gx, gy - 1)) { y += World.TOP_PX; ch -= World.TOP_PX; }
+      if (!w._solidCell(gx - 1, gy)) { x += World.SIDE_PX; cw -= World.SIDE_PX; }
+      if (!w._solidCell(gx + 1, gy)) { cw -= World.SIDE_PX; }
+      if (cw > 0 && ch > 0) ctx.fillRect(x, y, cw, ch);
+    }
+    ctx.restore();
+  }
+
   _drawPropFading(ctx, i, behindPlayer) {
     const p = this.player;
     const fade = !behindPlayer && p.alive && this.world.propCovers(i, p.x, p.y - 22);

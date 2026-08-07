@@ -499,7 +499,31 @@ export class World {
       markSolid(gx, gy);
     };
     if (colliderLayers.length) {
-      for (const L of colliderLayers) for (const c of (L.tiles || [])) if (inb(c.x, c.y)) addOccluder(c.x, c.y);
+      // …with one exception the author cannot avoid. Sprite Fusion renders a layer's empty
+      // cells black, so painting a tree on a collider layer means painting grass behind it
+      // too, and that backdrop grass is not something to walk into. It is recognisable
+      // without asking: a backdrop id is one the map uses overwhelmingly as ground on its
+      // *visual* layers and only incidentally here (this map: id 22, 960 times as ground
+      // against 17 on collision). Left solid it does more than add a phantom wall — it
+      // welds the tree to it, and the blob is then too big to count as scenery, so the
+      // tree stays solid too.
+      const visIds = new Map();
+      for (const L of layers) if (!L.collider) for (const c of (L.tiles || [])) {
+        const id = +c.id; visIds.set(id, (visIds.get(id) || 0) + 1);
+      }
+      const colIds = new Map();
+      for (const L of colliderLayers) for (const c of (L.tiles || [])) {
+        const id = +c.id; colIds.set(id, (colIds.get(id) || 0) + 1);
+      }
+      const backdrop = new Set();
+      for (const [id, n] of colIds) {
+        const v = visIds.get(id) || 0;
+        if (v >= 50 && v > n * 3) backdrop.add(id);
+      }
+      this.backdropIds = backdrop;
+      for (const L of colliderLayers) for (const c of (L.tiles || [])) {
+        if (inb(c.x, c.y) && !backdrop.has(+c.id)) addOccluder(c.x, c.y);
+      }
     } else {
       for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
         const id = this.authored[y * W + x];
