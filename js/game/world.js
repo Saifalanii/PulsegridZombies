@@ -476,16 +476,47 @@ export class World {
     // Back-compat alias: the top visual layer, for anything that reads a single grid.
     this.authored = this.authoredLayers[this.authoredLayers.length - 1] || new Int16Array(W * H).fill(-1);
 
+    // Occluder cells — the tiles the survivor and the dead can walk *behind*. Same set as
+    // the solid cells: if it blocks you it hides you, one rule the author controls just by
+    // painting collision. Each becomes a depth-sorted prop below (see the note there), so
+    // its own tile is drawn a second time over anything standing lower on the screen.
+    const occluders = [];
+    const addOccluder = (gx, gy) => {
+      markSolid(gx, gy);
+      occluders.push(gy * W + gx);
+    };
     if (colliderLayers.length) {
       // The map painted its own collision — obey it exactly, nothing guessed.
-      for (const L of colliderLayers) for (const c of (L.tiles || [])) if (inb(c.x, c.y)) markSolid(c.x, c.y);
+      const seen = new Set();
+      for (const L of colliderLayers) for (const c of (L.tiles || [])) {
+        if (!inb(c.x, c.y)) continue;
+        const key = c.y * W + c.x;
+        if (seen.has(key)) continue;   // two collider layers can overlap
+        seen.add(key);
+        addOccluder(c.x, c.y);
+      }
     } else {
       // No collision layer: fall back to classifying the top visual layer's tile ids.
       for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
         const id = this.authored[y * W + x];
-        if (id >= 0 && !TOWN_WALKABLE.has(id)) markSolid(x, y);
+        if (id >= 0 && !TOWN_WALKABLE.has(id)) addOccluder(x, y);
       }
     }
+
+    // Turn each occluder cell into a prop so the run's depth pass draws it over any body
+    // whose feet are above the cell's base — the walk-behind effect. The visual tile is
+    // whatever the top visual layer shows there; a collider cell with no art (a pure
+    // collision mask over empty ground) simply doesn't occlude, which is correct.
+    for (const cell of occluders) {
+      const gx = cell % W, gy = (cell / W) | 0;
+      let id = -1;
+      for (const layer of this.authoredLayers) { const v = layer[cell]; if (v >= 0) id = v; }
+      if (id < 0) continue;
+      const x = this.ox + gx * GTS, y = this.oy + gy * GTS;
+      this.props.push({ tile: id, x, y, w: GTS, h: GTS, baseY: y + GTS });
+    }
+    // Pre-sort by base-Y so the draw pass merges rather than sorts (as procedural props do).
+    this.props.sort((a, b) => a.baseY - b.baseY);
     // Solid border so nothing is pushed off the edge.
     for (let x = 0; x < this.cols; x++) { this.solid[x] = 1; this.solid[(this.rows - 1) * this.cols + x] = 1; }
     for (let y = 0; y < this.rows; y++) { this.solid[y * this.cols] = 1; this.solid[y * this.cols + this.cols - 1] = 1; }
@@ -1067,10 +1098,26 @@ export class World {
 
   drawPropAt(ctx, i, alpha = 1) {
     const p = this.props[i];
-    const def = p.def;
-    if (!def.img.complete) return;
     const prev = ctx.globalAlpha;
     if (alpha !== 1) ctx.globalAlpha = prev * alpha;
+
+    // Authored occluder tile — drawn from the town sheet by id. See _loadAuthored.
+    if (p.tile != null) {
+      const sheet = this.town;
+      if (sheet && sheet.complete) {
+        const S = TILE_SRC * 2;
+        const prevSmooth = ctx.imageSmoothingEnabled;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(sheet, (p.tile % TOWN_COLS) * S, ((p.tile / TOWN_COLS) | 0) * S, S, S,
+                      p.x, p.y, p.w + BLEED, p.h + BLEED);
+        ctx.imageSmoothingEnabled = prevSmooth;
+      }
+      if (alpha !== 1) ctx.globalAlpha = prev;
+      return;
+    }
+
+    const def = p.def;
+    if (!def.img.complete) { if (alpha !== 1) ctx.globalAlpha = prev; return; }
     if (def.crop) {
       const c = def.crop;
       ctx.drawImage(def.img, c[0], c[1], c[2], c[3], p.x, p.y, p.w, p.h);
