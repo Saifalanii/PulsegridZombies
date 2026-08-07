@@ -984,12 +984,28 @@ export class World {
   // footprint means a map painted the obvious way (collide the tile the tree is on)
   // behaves the way it looks, with no per-tile authoring to separate trunk from leaves.
   //
-  // Stacked solids stay honest: the passable strip at the top of a cell is reachable
-  // only from the cell above it, so inside a wall it is walled off anyway, and at a
-  // wall's top edge it reads as tucking under the eave. The flow field deliberately
-  // keeps using whole cells — pathing conservatively around a wall is free, and routing
-  // the horde through a strip the width of an eave would look like a bug.
+  // The same is true sideways: a post is narrower than its square, and clipping its
+  // corners is what stops the survivor snagging on scenery they are clearly walking
+  // past. SIDE is the margin shaved off each vertical edge.
+  //
+  // Both insets are only taken where the neighbouring cell is *open*, and that
+  // condition is the whole reason this is safe. Shaved unconditionally, a run of solid
+  // cells would develop a passable seam along every shared edge — a slit straight
+  // through a wall, and a corridor along the inside of a thick one. Shaving only an
+  // exposed edge means a lone tree shrinks to its trunk while a wall stays a wall: the
+  // inset appears exactly where there is open ground to be generous with.
+  //
+  // The flow field deliberately keeps using whole cells — pathing conservatively around
+  // a wall is free, and routing the horde through a gap the width of an eave would look
+  // like a bug.
   static FOOT_H = 0.62;
+  static SIDE = 0.18;
+
+  /** True if the *cell* is solid. Out of bounds counts as solid: the arena has walls. */
+  _solidCell(gx, gy) {
+    if (gx < 0 || gy < 0 || gx >= this.cols || gy >= this.rows) return true;
+    return this.solid[gy * this.cols + gx] === 1;
+  }
 
   /** @returns {boolean} true if world position (x, y) is inside something solid. */
   solidAt(x, y) {
@@ -997,8 +1013,15 @@ export class World {
     const gy = Math.floor((y - this.oy) / TS);
     if (gx < 0 || gy < 0 || gx >= this.cols || gy >= this.rows) return true;
     if (this.solid[gy * this.cols + gx] !== 1) return false;
-    // Inside a solid cell, but above its footprint — walk under it.
-    return (y - this.oy) - gy * TS >= TS * (1 - World.FOOT_H);
+
+    const lx = (x - this.ox) - gx * TS, ly = (y - this.oy) - gy * TS;
+    // Above the footprint, with open sky above — walk under the canopy.
+    if (ly < TS * (1 - World.FOOT_H) && !this._solidCell(gx, gy - 1)) return false;
+    // Past an exposed side — squeeze by the trunk.
+    const s = TS * World.SIDE;
+    if (lx < s && !this._solidCell(gx - 1, gy)) return false;
+    if (lx > TS - s && !this._solidCell(gx + 1, gy)) return false;
+    return true;
   }
 
   /** True if any of the four corners of the r-box around (x,y) is solid. */

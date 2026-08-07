@@ -25,7 +25,11 @@
 // v7: the world is now loaded from an authored map (assets/maps/), not generated.
 // v8: updated map with hand-painted collision layers.
 // v9: buildings solid whether painted or not (collision = painted UNION structure tiles).
-const CACHE = 'nightfall-v12';
+// v13: collision now blocks a solid tile's footprint rather than its whole square, so an
+// installed player on the old world.js would still snag on canopies the map no longer
+// collides. Stale-while-revalidate would fix it on the *second* launch; the bump fixes it
+// on the first.
+const CACHE = 'nightfall-v13';
 
 // On localhost the cache-first strategy below happily serves the module you edited
 // thirty seconds ago, and you debug a file the page isn't running. Development gets
