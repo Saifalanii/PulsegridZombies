@@ -253,7 +253,12 @@ class Game {
     this.state = S_PLAYING;
     this.acc = 0;
 
-    audio.unlock().then(() => audio.startMusic());
+    // Just unlock — the run's music is the looping track, started by _syncTrack. The
+    // synthesised ambience that startMusic() used to spin up ran a whole node graph and
+    // did per-frame work in audio.update, all of it now redundant under a real music
+    // track and playing on top of it. That double audio load was the run lag the music
+    // volume slider appeared to "fix": turning music down quietened the ambience graph.
+    audio.unlock();
     this.ui.banner(cfg.isDaily ? (cfg.mutator?.name || 'TONIGHT') : 'PRACTICE NIGHT');
   }
 

@@ -414,7 +414,7 @@ export class AudioEngine {
     this._lastSwingAt = now;
     const name = (this._swingFlip++ & 1) ? 'sword_b' : 'sword_a';
     const rate = 0.94 + Math.random() * 0.12;
-    if (!this._playSample(name, { gain: 0.9 * p, rate })) this.swing(p);
+    if (!this._playSample(name, { gain: 0.5 * p, rate })) this.swing(p);
   }
 
   // ---------------------------------------------------------------- tracks
