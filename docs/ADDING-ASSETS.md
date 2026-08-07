@@ -131,6 +131,44 @@ shell — a silent weapon offline is a broken weapon.
 
 ---
 
+## Making a map (Sprite Fusion)
+
+The world is loaded from `assets/maps/town.json` — a map drawn in
+[Sprite Fusion](https://www.spritefusion.com/) and exported. To change the map or make a
+new one, you don't touch code.
+
+**To replace the map:**
+
+1. In Sprite Fusion, build your map. Keep the tile size at **32px** — the game draws it at
+   2×, so 32px is correct; 64px comes out doubled.
+2. Export → you get a `map.json` and the tileset PNG.
+3. Drop them in `assets/maps/`, named `town.json` and `town-tiles.png` (overwrite the
+   existing ones). That's it — reload and it's the new map.
+4. Bump `CACHE` in `sw.js` so installed players get the new map instead of the cached one.
+
+**To paint collision** (what blocks the player and the dead):
+
+1. In Sprite Fusion, add a **new layer** and turn on its **collider** toggle.
+2. On that layer, paint a tile onto every cell that should be a wall — buildings, hedges,
+   posts, fences, anything solid. The tile you use doesn't matter; a collider layer is
+   never drawn, only felt.
+3. Export and drop in as above.
+
+When a map has a collider layer, the game obeys it **exactly** — nothing is guessed. When
+a map has *no* collider layer (like the first export did), the game falls back to a rule of
+thumb: hard surfaces (road, pavement, cobble) are walkable, everything else — grass,
+foliage, buildings — is solid. Painting collision yourself is always better; the fallback
+is just so an unpainted map is still playable.
+
+**Layers stack.** Any non-collider layer is drawn, bottom to top in the order Sprite Fusion
+lists them — so a ground layer plus a props/decoration layer both render.
+
+**Known limit:** authored maps are flat — no walk-behind. Your buildings are part of the
+tile layer, so you don't pass behind a roof the way you do with the procedural props.
+Adding that means tagging which tiles are "tall"; ask if you want it.
+
+---
+
 ## The determinism trap
 
 The Daily Run works because the same date produces the same night for everyone. That holds

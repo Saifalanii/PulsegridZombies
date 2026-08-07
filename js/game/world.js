@@ -447,7 +447,6 @@ export class World {
     this.gcols = W; this.grows = H;
     this.cols = W * G_SUB; this.rows = H * G_SUB;
 
-    this.authored = new Int16Array(W * H).fill(-1);
     this.ground = null;
     this.solid = new Uint8Array(this.cols * this.rows);
     this.claim = new Uint8Array(this.cols * this.rows);
@@ -459,14 +458,33 @@ export class World {
         for (let sx = gx * G_SUB; sx < gx * G_SUB + G_SUB; sx++)
           this.solid[sy * this.cols + sx] = 1;
     };
-    for (const c of (map.layers[0].tiles || [])) {
-      const x = c.x, y = c.y, id = +c.id;
-      if (x < 0 || y < 0 || x >= W || y >= H) continue;
-      this.authored[y * W + x] = id;
-      // The editor's own collision flag is the authority when the map provides one;
-      // the id classification is only the fallback for maps that don't paint collision.
-      const solidTile = typeof c.collider === 'boolean' ? c.collider : !TOWN_WALKABLE.has(id);
-      if (solidTile) markSolid(x, y);
+    const inb = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
+
+    // Sprite Fusion exports one layer per drawing layer, each with a `collider` flag.
+    // A collider layer is a collision mask — its cells are solid and it is not drawn.
+    // Every other layer is visual; they stack bottom-to-top in array order.
+    const layers = map.layers || [];
+    const colliderLayers = layers.filter((L) => L.collider);
+    const visualLayers = layers.filter((L) => !L.collider);
+    if (!visualLayers.length && layers.length) visualLayers.push(layers[0]); // all-collider export: still draw it
+
+    this.authoredLayers = visualLayers.map((L) => {
+      const grid = new Int16Array(W * H).fill(-1);
+      for (const c of (L.tiles || [])) if (inb(c.x, c.y)) grid[c.y * W + c.x] = +c.id;
+      return grid;
+    });
+    // Back-compat alias: the top visual layer, for anything that reads a single grid.
+    this.authored = this.authoredLayers[this.authoredLayers.length - 1] || new Int16Array(W * H).fill(-1);
+
+    if (colliderLayers.length) {
+      // The map painted its own collision — obey it exactly, nothing guessed.
+      for (const L of colliderLayers) for (const c of (L.tiles || [])) if (inb(c.x, c.y)) markSolid(c.x, c.y);
+    } else {
+      // No collision layer: fall back to classifying the top visual layer's tile ids.
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+        const id = this.authored[y * W + x];
+        if (id >= 0 && !TOWN_WALKABLE.has(id)) markSolid(x, y);
+      }
     }
     // Solid border so nothing is pushed off the edge.
     for (let x = 0; x < this.cols; x++) { this.solid[x] = 1; this.solid[(this.rows - 1) * this.cols + x] = 1; }
@@ -985,17 +1003,20 @@ export class World {
     const y1 = Math.min(this.grows - 1, Math.ceil((r.camY + halfH - this.oy) / GTS));
     const S = TILE_SRC * 2;   // 32px source cell
 
-    // Authored map: paint each tile from its own tileset, viewport-culled.
+    // Authored map: paint each visual layer bottom-to-top, viewport-culled.
     if (this.authored) {
       const sheet = this.town;
       if (sheet.complete) {
         for (let gy = y0; gy <= y1; gy++) {
           const wy = this.oy + gy * GTS, row = gy * this.gcols;
           for (let gx = x0; gx <= x1; gx++) {
-            const id = this.authored[row + gx];
-            if (id < 0) continue;
-            ctx.drawImage(sheet, (id % TOWN_COLS) * S, ((id / TOWN_COLS) | 0) * S, S, S,
-                          this.ox + gx * GTS, wy, GTS + BLEED, GTS + BLEED);
+            const wx = this.ox + gx * GTS;
+            for (const layer of this.authoredLayers) {
+              const id = layer[row + gx];
+              if (id < 0) continue;
+              ctx.drawImage(sheet, (id % TOWN_COLS) * S, ((id / TOWN_COLS) | 0) * S, S, S,
+                            wx, wy, GTS + BLEED, GTS + BLEED);
+            }
           }
         }
       }
