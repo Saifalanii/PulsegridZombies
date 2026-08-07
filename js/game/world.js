@@ -480,28 +480,28 @@ export class World {
     // the solid cells: if it blocks you it hides you, one rule the author controls just by
     // painting collision. Each becomes a depth-sorted prop below (see the note there), so
     // its own tile is drawn a second time over anything standing lower on the screen.
-    const occluders = [];
+    // Solidity is the UNION of two sources, not one or the other:
+    //   - every cell painted on a collision layer, and
+    //   - every cell whose visual tile is a structure (not a walkable surface).
+    // Obeying the painted layer alone was the bug behind buildings you could walk into
+    // and zombies spawning inside them: any building the author didn't hand-paint stayed
+    // walkable. A building tile is always solid now; the painted layer adds to that
+    // (blocking a bit of open road, say), it never subtracts. Occluders match solids —
+    // if it blocks you it hides you.
+    const marked = new Uint8Array(W * H);
     const addOccluder = (gx, gy) => {
+      const key = gy * W + gx;
+      if (marked[key]) return;
+      marked[key] = 1;
       markSolid(gx, gy);
-      occluders.push(gy * W + gx);
     };
-    if (colliderLayers.length) {
-      // The map painted its own collision — obey it exactly, nothing guessed.
-      const seen = new Set();
-      for (const L of colliderLayers) for (const c of (L.tiles || [])) {
-        if (!inb(c.x, c.y)) continue;
-        const key = c.y * W + c.x;
-        if (seen.has(key)) continue;   // two collider layers can overlap
-        seen.add(key);
-        addOccluder(c.x, c.y);
-      }
-    } else {
-      // No collision layer: fall back to classifying the top visual layer's tile ids.
-      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
-        const id = this.authored[y * W + x];
-        if (id >= 0 && !TOWN_WALKABLE.has(id)) addOccluder(x, y);
-      }
+    for (const L of colliderLayers) for (const c of (L.tiles || [])) if (inb(c.x, c.y)) addOccluder(c.x, c.y);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const id = this.authored[y * W + x];
+      if (id >= 0 && !TOWN_WALKABLE.has(id)) addOccluder(x, y);
     }
+    const occluders = [];
+    for (let i = 0; i < marked.length; i++) if (marked[i]) occluders.push(i);
 
     // Turn each occluder cell into a prop so the run's depth pass draws it over any body
     // whose feet are above the cell's base — the walk-behind effect. The visual tile is
