@@ -81,7 +81,7 @@ export const ENEMIES = {
     name: 'Screamer', sheet: 'plague', scale: 1.02,
     r: 15, hp: 30, speed: 88, dmg: 10,
     xp: 3, score: 30, behavior: 'circle', weight: 34, minTime: 80,
-    circleRadius: 230, callEvery: 5.2, callCount: 3, call: 'shambler',
+    circleRadius: 230, callEvery: 5.2, callCount: 3, call: 'shambler', maxCalls: 2,
     atk: { range: 42, windup: 0.4, recover: 0.3, cool: 0.5, clip: 'slash', reach: 54 },
     // A horde-caller, not a shooter. It keeps its distance, circles, and screams the
     // street awake. Killing it early is always the right call — which is the entire
@@ -152,7 +152,7 @@ export const ENEMIES = {
     // Bile burst instead of a neon radial: same telegraph, same geometry, but it is
     // something a swollen corpse could plausibly do.
     shootEvery: 2.8, radialCount: 12, bulletSpeed: 170, bulletDmg: 14,
-    call: 'shambler', callCount: 4, callEvery: 6.5,
+    call: 'shambler', callCount: 4, callEvery: 6.5, maxCalls: 3,
     atk: { range: 72, windup: 0.8, recover: 0.55, cool: 1.0, clip: 'slash', reach: 100, knock: 520 },
     desc: 'Several people, once.',
   },
@@ -178,15 +178,6 @@ export const ENEMIES = {
     desc: 'It kept the apron.',
   },
 };
-
-/** Elites arrive on a timer, not a wave counter, so the pressure is predictable. */
-export const ELITE_TIMES = [95, 190, 285, 375, 460, 540];
-
-/**
- * Butcher schedule, deliberately offset from ELITE_TIMES so the two never land together.
- * A typical 3-6 minute run meets one or two — enough to be an event, not a routine.
- */
-export const MINIBOSS_TIMES = [200, 400, 600];
 
 // ---------------------------------------------------------------- weapons
 //
@@ -230,7 +221,7 @@ export const WEAPONS = {
     speed: 0, count: 1, spread: 0, size: 0, pierce: 0, range: 0,
   },
   weapon_bow: {
-    name: 'Hunting Bow', desc: 'Draw, hold, release. Punches through a line of them.',
+    name: 'Hunting Bow', desc: 'Automatic long-range shots. Hold Heavy to punch through a whole line.',
     cost: 700, melee: false,
     // `thrust`, not `shoot` — the bow draw only exists on player_hero_alt.png's row 4-7
     // block (LPC's "thrust" slot), not on the dedicated 13-frame "shoot" rows, which are
@@ -274,19 +265,19 @@ export const UPGRADES = [
     desc: (l) => `+18% attack speed  (${l}/6)`,
     apply: (s) => { s.rateMul *= 1.18; } },
 
-  { id: 'multi',   name: 'Split Shot',   max: 3, weight: 55, icon: 5,
+  { id: 'multi',   name: (melee) => melee ? 'Wide Swing' : 'Split Shot', max: 3, weight: 55, icon: 5,
     desc: (l, melee) => melee
       ? `+18% swing arc, -7% damage  (${l}/3)`
       : `+1 arrow, -7% damage each  (${l}/3)`,
     apply: (s) => { s.count += 1; s.spread = Math.max(s.spread, 0.16); s.dmgMul *= 0.93; } },
 
-  { id: 'pierce',  name: 'Broadheads',   max: 3, weight: 60, icon: 6,
+  { id: 'pierce',  name: (melee) => melee ? 'Follow-Through' : 'Broadheads', max: 3, weight: 60, icon: 6,
     desc: (l, melee) => melee
       ? `+12% swing reach  (${l}/3)`
       : `Arrows punch through +1 body  (${l}/3)`,
     apply: (s) => { s.pierce += 1; } },
 
-  { id: 'velocity',name: 'Fletching',    max: 3, weight: 65, icon: 4,
+  { id: 'velocity',name: (melee) => melee ? 'Long Reach' : 'Fletching', max: 3, weight: 65, icon: 4,
     // speedMul is projectile flight speed and does nothing at all to a swing — only the
     // rangeMul half of this reaches a melee build, so only that half is claimed.
     desc: (l, melee) => melee
@@ -302,7 +293,7 @@ export const UPGRADES = [
     desc: (l) => `+22 max health, heal 22  (${l}/5)`,
     apply: (s, p) => { s.maxHp += 22; p.hp = Math.min(s.maxHp, p.hp + 22); } },
 
-  { id: 'magnet',  name: 'Scrounger',    max: 3, weight: 60, icon: 0,
+  { id: 'magnet',  name: 'Scrounger’s Reach', max: 3, weight: 60, icon: 0,
     desc: (l) => `+55% pickup radius  (${l}/3)`,
     apply: (s) => { s.magnet *= 1.55; } },
 
@@ -320,7 +311,7 @@ export const UPGRADES = [
   // same three cards at level N regardless of what they're carrying. Giving it a second
   // effect that a melee build can use keeps the offer honest without splitting the
   // upgrade stream by weapon.
-  { id: 'homing',  name: 'Bloodhound',   max: 2, weight: 45, icon: 0,
+  { id: 'homing',  name: (melee) => melee ? 'Measured Reach' : 'Bloodhound', max: 2, weight: 45, icon: 0,
     desc: (l, melee) => melee
       ? `+8% swing reach  (${l}/2)`
       : `Arrows curve toward the nearest body; +8% range  (${l}/2)`,
@@ -338,11 +329,11 @@ export const UPGRADES = [
     desc: (l) => `Recover 1 health every 2.6s  (${l}/3)`,
     apply: (s) => { s.regen += 1 / 2.6; } },
 
-  { id: 'greed',   name: 'Scavenger',    max: 3, weight: 55, icon: 5,
+  { id: 'greed',   name: 'Lucky Find',   max: 3, weight: 55, icon: 5,
     desc: (l) => `+30% scrap dropped  (${l}/3)`,
     apply: (s) => { s.shardMul *= 1.3; } },
 
-  { id: 'bigshot', name: 'Heavy Heads',  max: 3, weight: 55, icon: 0,
+  { id: 'bigshot', name: (melee) => melee ? 'Heavy Edge' : 'Heavy Heads', max: 3, weight: 55, icon: 0,
     // sizeMul is arrow hitbox size; a swing has no projectile to widen, so a melee
     // build only ever collects the damage half.
     desc: (l, melee) => melee
@@ -396,7 +387,7 @@ export const SHOP = [
   { id: 'shard_3', cat: 'Supplies', name: 'Scavenging III', cost: 950, desc: '+20% more scrap', req: 'shard_2' },
 
   { id: 'magnet_start', cat: 'Supplies', name: 'Scrap Hook', cost: 400, desc: '+60% starting pickup radius' },
-  { id: 'dash_charge',  cat: 'Supplies', name: 'Second Wind', cost: 900, desc: '+1 sprint charge' },
+  { id: 'dash_charge',  cat: 'Supplies', name: 'Reserve Sprint', cost: 900, desc: '+1 sprint charge' },
   { id: 'revive',       cat: 'Supplies', name: 'Adrenaline Shot', cost: 2200,
     desc: 'Once per night, get back up at 45% health' },
 

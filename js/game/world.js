@@ -46,7 +46,7 @@ export const TS = TILE_SRC * TILE_SCALE;   // 32 world px per tile
  * unit closes the seam. The cost is half a source pixel of stretch on the trailing edge,
  * invisible at this magnification with smoothing off.
  */
-const BLEED = 1;
+const BLEED = 2;
 
 
 // ------------------------------------------------------------------ atlas
@@ -176,11 +176,14 @@ const CITY_SRC = 'assets/city/simple-city-32.png';
 // map is supplied, World renders and collides *it* instead of generating a procedural
 // city — the deliberate layout the player asked for, in place of the scattered one.
 //
-// 32px tiles, drawn at 2x like the city sheet, so one map tile is one 64px ground cell
-// (GTS) and two collision cells (TS) on a side. Authoring at 32px is therefore correct;
-// 64px art would come out doubled.
+// 32px source tiles are enlarged to one 64px world cell. The sheet is 256x704, giving
+// it 176 valid cells (IDs 0-175); the authored map's highest ID is 171.
 const TOWN_SRC = 'assets/maps/town-tiles.png';
+const TOWN_TILE_SRC = 32;
 const TOWN_COLS = 8;
+// Plain grass from the authored tileset. Used only when the editor export has no tile
+// on any layer for a cell, so an accidental hole cannot reveal the canvas clear colour.
+const TOWN_FALLBACK_TILE = 133;
 
 // Which tile ids are walkable ground, when the map doesn't say for itself.
 //
@@ -402,6 +405,8 @@ export class World {
     if (mapData) { this._loadAuthored(arena, mapData); return; }
     this.ox = arena.x;
     this.oy = arena.y;
+    this.mapCell = GTS;
+    this.mapSub = G_SUB;
     this.cols = Math.ceil(arena.w / TS);
     this.rows = Math.ceil(arena.h / TS);
 
@@ -441,11 +446,13 @@ export class World {
    */
   _loadAuthored(arena, map) {
     const W = map.mapWidth, H = map.mapHeight;
-    arena.w = W * GTS; arena.h = H * GTS;
+    this.mapCell = GTS;
+    this.mapSub = G_SUB;
+    arena.w = W * this.mapCell; arena.h = H * this.mapCell;
     arena.x = -arena.w / 2; arena.y = -arena.h / 2;
     this.ox = arena.x; this.oy = arena.y;
     this.gcols = W; this.grows = H;
-    this.cols = W * G_SUB; this.rows = H * G_SUB;
+    this.cols = W * this.mapSub; this.rows = H * this.mapSub;
 
     this.ground = null;
     this.solid = new Uint8Array(this.cols * this.rows);
@@ -454,8 +461,8 @@ export class World {
     this.town = townSheet();
 
     const markSolid = (gx, gy) => {
-      for (let sy = gy * G_SUB; sy < gy * G_SUB + G_SUB; sy++)
-        for (let sx = gx * G_SUB; sx < gx * G_SUB + G_SUB; sx++)
+      for (let sy = gy * this.mapSub; sy < gy * this.mapSub + this.mapSub; sy++)
+        for (let sx = gx * this.mapSub; sx < gx * this.mapSub + this.mapSub; sx++)
           this.solid[sy * this.cols + sx] = 1;
     };
     const inb = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
@@ -479,6 +486,15 @@ export class World {
       for (const c of (L.tiles || [])) if (inb(c.x, c.y)) grid[c.y * W + c.x] = +c.id;
       return grid;
     });
+    // Sprite Fusion leaves genuinely unpainted cells out of every layer. Repair those
+    // cells in memory with the map's plain grass tile. This currently catches the 2x2
+    // omission at (42..43, 6..7) without modifying deliberate transparency in props.
+    const baseLayer = this.authoredLayers[0];
+    if (baseLayer) for (let i = 0; i < W * H; i++) {
+      let painted = false;
+      for (const layer of this.authoredLayers) if (layer[i] >= 0) { painted = true; break; }
+      if (!painted) baseLayer[i] = TOWN_FALLBACK_TILE;
+    }
     // Back-compat alias: the top visual layer, for anything that reads a single grid.
     this.authored = this.authoredLayers[this.authoredLayers.length - 1] || new Int16Array(W * H).fill(-1);
 
@@ -530,30 +546,21 @@ export class World {
         if (id >= 0 && !TOWN_WALKABLE.has(id)) addOccluder(x, y);
       }
     }
-    const occluders = [];
-    for (let i = 0; i < marked.length; i++) if (marked[i]) occluders.push(i);
-
     this._openSmallObstacles(marked, W, H);
 
+    // Authored collider tiles are flattened art, not isolated foreground sprites. Many
+    // contain opaque pavement/building backing; replaying them after characters creates
+    // 64px rectangles that hide the player. Keep their collision, but disable this
+    // unsafe visual-occlusion list until the map exports explicit occluder metadata.
     // Turn each occluder cell into a prop so the run's depth pass draws it over any body
     // whose feet are above the cell's base — the walk-behind effect. The visual tile is
     // whatever the top visual layer shows there; a collider cell with no art (a pure
     // collision mask over empty ground) simply doesn't occlude, which is correct.
-    for (const cell of occluders) {
-      const gx = cell % W, gy = (cell / W) | 0;
-      let id = -1;
-      for (const layer of this.authoredLayers) { const v = layer[cell]; if (v >= 0) id = v; }
-      if (id < 0) continue;
-      const x = this.ox + gx * GTS, y = this.oy + gy * GTS;
-      this.props.push({ tile: id, x, y, w: GTS, h: GTS, baseY: y + GTS });
-    }
-    // Pre-sort by base-Y so the draw pass merges rather than sorts (as procedural props do).
-    this.props.sort((a, b) => a.baseY - b.baseY);
     // Solid border so nothing is pushed off the edge.
     for (let x = 0; x < this.cols; x++) { this.solid[x] = 1; this.solid[(this.rows - 1) * this.cols + x] = 1; }
     for (let y = 0; y < this.rows; y++) { this.solid[y * this.cols] = 1; this.solid[y * this.cols + this.cols - 1] = 1; }
 
-    this._visProps = new Int32Array(4);
+    this._visProps = new Int32Array(1);
     this._visCount = 0;
   }
 
@@ -595,8 +602,8 @@ export class World {
       if (comp.length > World.SMALL_OBSTACLE) continue;
       for (const cell of comp) {
         const gx = cell % W, gy = (cell / W) | 0;
-        for (let sy = gy * G_SUB; sy < gy * G_SUB + G_SUB; sy++)
-          for (let sx = gx * G_SUB; sx < gx * G_SUB + G_SUB; sx++)
+        for (let sy = gy * this.mapSub; sy < gy * this.mapSub + this.mapSub; sy++)
+          for (let sx = gx * this.mapSub; sx < gx * this.mapSub + this.mapSub; sx++)
             this.solid[sy * this.cols + sx] = 0;
       }
       freed += comp.length;
@@ -1202,6 +1209,39 @@ export class World {
     return [bx / l, by / l];
   }
 
+  /** True when the point belongs to the player's connected walkable region. */
+  reachable(x, y) {
+    const flow = this._flow;
+    if (!flow) return false;
+    const cx = Math.floor((x - this.ox) / TS);
+    const cy = Math.floor((y - this.oy) / TS);
+    if (cx < 0 || cy < 0 || cx >= this.cols || cy >= this.rows) return false;
+    return flow[cy * this.cols + cx] >= 0;
+  }
+
+  /**
+   * Find an open point connected to the player, writing it to `_ox` / `_oy`.
+   * Unlike nearestOpen, this rejects empty pockets behind fences and map-edge scenery.
+   */
+  nearestReachable(x, y, r, maxRings = 10) {
+    if (!this.blocked(x, y, r) && this.reachable(x, y)) {
+      this._ox = x; this._oy = y;
+      return true;
+    }
+    for (let ring = 1; ring <= maxRings; ring++) {
+      for (let k = 0; k < 16; k++) {
+        const a = (k / 16) * Math.PI * 2;
+        const tx = x + Math.cos(a) * ring * TS;
+        const ty = y + Math.sin(a) * ring * TS;
+        if (!this.blocked(tx, ty, r) && this.reachable(tx, ty)) {
+          this._ox = tx; this._oy = ty;
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
   /** Nearest walkable position to (x, y), searched outward. Used to place spawns. */
   nearestOpen(x, y, r) {
     if (!this.blocked(x, y, r)) return true;
@@ -1227,26 +1267,33 @@ export class World {
     const prevSmooth = ctx.imageSmoothingEnabled;
     ctx.imageSmoothingEnabled = false;
 
-    const halfW = r.viewW / 2 + GTS, halfH = r.viewH / 2 + GTS;
-    const x0 = Math.max(0, Math.floor((r.camX - halfW - this.ox) / GTS));
-    const x1 = Math.min(this.gcols - 1, Math.ceil((r.camX + halfW - this.ox) / GTS));
-    const y0 = Math.max(0, Math.floor((r.camY - halfH - this.oy) / GTS));
-    const y1 = Math.min(this.grows - 1, Math.ceil((r.camY + halfH - this.oy) / GTS));
-    const S = TILE_SRC * 2;   // 32px source cell
+    const cellSize = this.mapCell;
+    const halfW = r.viewW / 2 + cellSize, halfH = r.viewH / 2 + cellSize;
+    const x0 = Math.max(0, Math.floor((r.camX - halfW - this.ox) / cellSize));
+    const x1 = Math.min(this.gcols - 1, Math.ceil((r.camX + halfW - this.ox) / cellSize));
+    const y0 = Math.max(0, Math.floor((r.camY - halfH - this.oy) / cellSize));
+    const y1 = Math.min(this.grows - 1, Math.ceil((r.camY + halfH - this.oy) / cellSize));
 
     // Authored map: paint each visual layer bottom-to-top, viewport-culled.
     if (this.authored) {
       const sheet = this.town;
+      const S = TOWN_TILE_SRC;
+      // Cover genuinely unpainted editor cells (there are four in the current map) and
+      // provide ground behind any source tile with transparent pixels. Without this,
+      // those pixels reveal the canvas clear colour as a conspicuous black square.
+      ctx.fillStyle = 'rgb(15,24,17)';
+      ctx.fillRect(this.ox + x0 * cellSize, this.oy + y0 * cellSize,
+                   (x1 - x0 + 1) * cellSize + BLEED, (y1 - y0 + 1) * cellSize + BLEED);
       if (sheet.complete) {
         for (let gy = y0; gy <= y1; gy++) {
-          const wy = this.oy + gy * GTS, row = gy * this.gcols;
+          const wy = this.oy + gy * cellSize, row = gy * this.gcols;
           for (let gx = x0; gx <= x1; gx++) {
-            const wx = this.ox + gx * GTS;
+            const wx = this.ox + gx * cellSize;
             for (const layer of this.authoredLayers) {
               const id = layer[row + gx];
               if (id < 0) continue;
               ctx.drawImage(sheet, (id % TOWN_COLS) * S, ((id / TOWN_COLS) | 0) * S, S, S,
-                            wx, wy, GTS + BLEED, GTS + BLEED);
+                            wx, wy, cellSize + BLEED, cellSize + BLEED);
             }
           }
         }
@@ -1256,22 +1303,23 @@ export class World {
     }
 
     const sheet = this.atlas.city;
+    const S = TILE_SRC * 2;   // 32px source cell in the procedural city sheet
     if (sheet.complete) {
       for (let gy = y0; gy <= y1; gy++) {
-        const wy = this.oy + gy * GTS;
+        const wy = this.oy + gy * cellSize;
         const row = gy * this.gcols;
         for (let gx = x0; gx <= x1; gx++) {
           const cell = GROUND_TILES[this.ground[row + gx]];
           if (!cell) continue;
-          const wx = this.ox + gx * GTS;
+          const wx = this.ox + gx * cellSize;
           if (cell.css) {
             // Flat surface (see G_ROAD). Pre-tinted at module load, so this costs a
             // fillRect and nothing else.
             ctx.fillStyle = cell.css;
-            ctx.fillRect(wx, wy, GTS + BLEED, GTS + BLEED);
+            ctx.fillRect(wx, wy, cellSize + BLEED, cellSize + BLEED);
           } else {
             ctx.drawImage(sheet, cell[0] * S, cell[1] * S, S, S,
-                          wx, wy, GTS + BLEED, GTS + BLEED);
+                          wx, wy, cellSize + BLEED, cellSize + BLEED);
           }
         }
       }
@@ -1305,7 +1353,7 @@ export class World {
     if (p.tile != null) {
       const sheet = this.town;
       if (sheet && sheet.complete) {
-        const S = TILE_SRC * 2;
+        const S = TOWN_TILE_SRC;
         const prevSmooth = ctx.imageSmoothingEnabled;
         ctx.imageSmoothingEnabled = false;
         ctx.drawImage(sheet, (p.tile % TOWN_COLS) * S, ((p.tile / TOWN_COLS) | 0) * S, S, S,

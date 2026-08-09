@@ -446,7 +446,9 @@ export class Renderer {
 
     const p = this.worldToScreen(this.lightX, this.lightY, juice, this._lightPt || (this._lightPt = {}));
     const px = p.x * this.dpr, py = p.y * this.dpr;
-    const rad = (palette.lightR ?? 520) * this.scale * juice.zoom * this.dpr;
+    // setLight() owns the per-run radius. Reading palette.lightR here bypassed that value,
+    // which made FOGBOUND's reduced lantern reach a no-op on every map.
+    const rad = (this.lightR ?? palette.lightR ?? 520) * this.scale * juice.zoom * this.dpr;
 
     // The mask and the surround must be the *same* colour or the mask's bounding box
     // becomes visible as a hard-edged square around the survivor. An earlier version
@@ -842,6 +844,26 @@ export class Renderer {
     ctx.beginPath(); ctx.arc(visual.kx, visual.ky, 24, 0, TAU); ctx.stroke();
     ctx.fillStyle = rgba(palette.primary, 0.18);
     ctx.fill();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  /** Progress feedback where the action thumb landed: full circle means Heavy committed. */
+  drawAction(visual, palette) {
+    if (!visual) return;
+    const ctx = this.ctx;
+    ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.lineWidth = visual.committed ? 4 : 3;
+    ctx.strokeStyle = rgba(visual.committed ? [255, 178, 74] : palette.primary,
+                           visual.committed ? 0.95 : 0.75);
+    ctx.beginPath();
+    ctx.arc(visual.x, visual.y, 31, -Math.PI / 2,
+            -Math.PI / 2 + TAU * Math.max(0.04, visual.progress));
+    ctx.stroke();
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = rgba(palette.primary, 0.24);
+    ctx.beginPath(); ctx.arc(visual.x, visual.y, 31, 0, TAU); ctx.stroke();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.globalCompositeOperation = 'source-over';
   }

@@ -16,7 +16,7 @@ export const MUTATORS = [
   {
     id: 'swarm', name: 'OVERRUN',
     desc: 'Twice as many of them, 35% less meat on each. Scrap x1.5.',
-    apply: (m) => { m.spawnRate *= 2; m.enemyHp *= 0.65; m.shardMul *= 1.5; },
+    apply: (m) => { m.waveCount *= 2; m.spawnRate *= 1.7; m.enemyHp *= 0.65; m.shardMul *= 1.5; },
   },
   {
     id: 'brittle', name: 'PICKED CLEAN',
@@ -25,7 +25,7 @@ export const MUTATORS = [
   },
   {
     id: 'bulwark', name: 'BLOATED',
-    desc: 'They take +80% more killing but move 25% slower. Score x1.8.',
+    desc: 'The dead are 80% tougher but move 25% slower. Score x1.8.',
     apply: (m) => { m.enemyHp *= 1.8; m.enemySpeed *= 0.75; m.scoreMul *= 1.8; },
   },
   {
@@ -40,7 +40,7 @@ export const MUTATORS = [
   },
   {
     id: 'famine', name: 'FAMINE',
-    desc: 'Half the salvage, but every level gives you two picks. Score x2.',
+    desc: 'Half the experience, but every level gives you two picks. Score x2.',
     apply: (m) => { m.xpMul *= 0.5; m.doubleUpgrade = true; m.scoreMul *= 2; },
   },
   {
@@ -50,12 +50,12 @@ export const MUTATORS = [
   },
   {
     id: 'shrouded', name: 'FOGBOUND',
-    desc: 'The village closes in. Nowhere to run. Score x1.7.',
-    apply: (m) => { m.arenaScale = 0.68; m.scoreMul *= 1.7; },
+    desc: 'Your lantern reaches 35% less far. Score x1.7.',
+    apply: (m) => { m.visibilityMul *= 0.65; m.scoreMul *= 1.7; },
   },
   {
     id: 'volatile', name: 'ROTTEN',
-    desc: 'Every body bursts when it drops. So does every mistake. Score x1.8.',
+    desc: 'Killed bodies burst into the horde. Enemy hits deal 35% more. Score x1.8.',
     apply: (m) => { m.forceNova = 2; m.enemyDmg *= 1.35; m.scoreMul *= 1.8; },
   },
 ];
@@ -63,10 +63,10 @@ export const MUTATORS = [
 export function defaultModifiers() {
   return {
     enemySpeed: 1, enemyHp: 1, enemyDmg: 1,
-    spawnRate: 1, eliteRate: 1,
+    spawnRate: 1, waveCount: 1, eliteRate: 1,
     playerDmg: 1, playerSpeed: 1, startHpMul: 1,
     xpMul: 1, shardMul: 1, scoreMul: 1,
-    arenaScale: 1,
+    arenaScale: 1, visibilityMul: 1,
     noHealing: false, doubleUpgrade: false, forceNova: 0,
   };
 }

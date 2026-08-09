@@ -28,6 +28,7 @@
     </div>
     <div class="hud-mid">
       <div id="hud-time" class="time">0:00</div>
+      <div id="hud-wave" class="wave">ROUND 1</div>
       <div id="hud-tier" class="tier">DUSK</div>
     </div>
     <div class="hud-right">
@@ -43,6 +44,8 @@
     <span class="voice-line" id="voice-line"></span>
   </div>
 
+  <div id="hud-action" class="action-status" aria-live="polite">SPRINT READY</div>
+
   <div class="hud-bottom">
     <div class="bar xp-bar"><div id="xp-fill" class="fill"></div><span id="hud-level" class="lvl">LV 1</span></div>
     <div class="bar hp-bar"><div id="hp-fill" class="fill"></div><span id="hp-text" class="hp-text">100</span></div>
@@ -54,7 +57,7 @@
   <div class="scroll">
     <header class="title-block">
       <h1 class="logo"><span>NIGHTFALL</span><span class="logo-alt">VILLAGE</span></h1>
-      <p class="tagline">Hold the village until morning. One night a day counts.</p>
+      <p class="tagline">Morning never comes. Hold the village as long as you can. One real attempt a day.</p>
     </header>
 
     <section class="card daily-card" id="daily-card">
@@ -78,7 +81,7 @@
       <div class="streak-flame" id="streak-flame">▲</div>
       <div class="streak-info">
         <div class="streak-n"><span id="streak-count">0</span> <span class="streak-unit">NIGHT STREAK</span></div>
-        <div class="streak-sub" id="streak-sub">Survive tonight to begin.</div>
+        <div class="streak-sub" id="streak-sub">Go out tonight to begin.</div>
       </div>
     </section>
     <div class="milestones" id="milestones"></div>
@@ -119,9 +122,10 @@
     </div>
 
     <div class="brief-loadout" id="brief-loadout"></div>
-    <div class="brief-controls">
+    <div class="brief-controls" id="brief-controls">
       <div><b>LEFT</b> drag to move</div>
-      <div><b>RIGHT</b> tap to sprint</div>
+      <div><b>RIGHT TAP</b> sprint</div>
+      <div><b>RIGHT HOLD</b> heavy attack</div>
       <div><b>ATTACKS</b> swing on their own</div>
     </div>
     <button class="btn primary big" id="btn-begin">GO OUT</button>
@@ -130,7 +134,7 @@
 </div>
 
 <!-- ============================ Level up ============================ -->
-<div id="levelup" class="layer screen overlay hidden">
+<div id="levelup" class="layer screen overlay hidden" role="dialog" aria-modal="true" aria-label="Choose an upgrade">
   <div class="levelup-inner">
     <div class="eyebrow pulse-text">LEVEL <span id="lvl-n">2</span> — TAKE ONE</div>
     <div class="cards" id="upgrade-cards"></div>
@@ -138,7 +142,7 @@
 </div>
 
 <!-- ============================ Pause ============================ -->
-<div id="pause" class="layer screen overlay hidden">
+<div id="pause" class="layer screen overlay hidden" role="dialog" aria-modal="true" aria-label="Paused">
   <div class="pause-inner">
     <h2>PAUSED</h2>
     <div class="pause-stats" id="pause-stats"></div>
@@ -251,7 +255,7 @@
       <div class="cast-member">
         <canvas class="portrait big" id="about-rival-face" width="96" height="96" aria-hidden="true"></canvas>
         <div class="cast-name">THE BAND</div>
-        <div class="cast-role">Voice on the emergency channel</div>
+        <div class="cast-role">Something dead on the emergency channel</div>
       </div>
     </div>
     <p class="about-line" id="about-line"></p>

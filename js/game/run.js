@@ -14,7 +14,7 @@ import { save } from '../core/save.js';
 import {
   Palette, HAZARD_RGB, BLOOD_RGB, HEAL_RGB, SHARD_RGB, XP_RGB, rgba, trailColor, TIERS,
 } from './palette.js';
-import { ENEMIES, WEAPONS, UPGRADES, HEAVY, ELITE_TIMES, MINIBOSS_TIMES, metaStats, xpForLevel } from './defs.js';
+import { ENEMIES, WEAPONS, UPGRADES, HEAVY, metaStats, xpForLevel } from './defs.js';
 import { World, TS, chestImage } from './world.js';
 import {
   LpcSheet, createAnim, resetAnim, updateAnim, updateClipOnly, drawAnim,
@@ -69,6 +69,30 @@ const MAX_PICKUPS = 320;
 const MAX_CORPSES = 44;
 const COMBO_WINDOW = 2.4;
 
+// ------------------------------------------------------------------ rounds
+//
+// The old director was an endless tap: it emitted a group every few seconds for the
+// whole run. Rounds give that pressure a shape. Each one has a finite quota, finishes
+// only after the last living zombie is dealt with, and is followed by enough quiet time
+// to choose an upgrade and reposition before the next horde arrives.
+const ROUND_BREAK = 12;
+const ROUND_BASE_ENEMIES = 8;
+const ROUND_ENEMIES_STEP = 4;
+
+// The onboarding curve is authored rather than inferred from elapsed time. On mobile,
+// pressure should come from readable groups and new behaviours, not early HP inflation.
+const OPENING_ROUNDS = {
+  1: { budget: 14, interval: 0.72, group: 2, near: true, types: ['shambler'] },
+  2: { budget: 18, interval: 0.64, group: 3, near: true, types: ['shambler', 'stalker'] },
+  3: { budget: 20, interval: 0.56, group: 3, near: true, types: ['shambler', 'stalker', 'runner'], forced: 'runner' },
+  4: { budget: 24, interval: 0.50, group: 4, types: ['shambler', 'stalker', 'runner', 'vermin'], forced: 'vermin' },
+  5: { budget: 26, interval: 0.54, group: 3, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater'], forced: 'bloater' },
+  6: { budget: 29, interval: 0.50, group: 4, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer'], forced: 'screamer' },
+  7: { budget: 32, interval: 0.47, group: 4, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer', 'brute'], forced: 'brute' },
+  8: { budget: 35, interval: 0.44, group: 4, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer', 'brute', 'spitter'], forced: 'spitter' },
+  9: { budget: 38, interval: 0.42, group: 5, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer', 'brute', 'spitter', 'lurker'], forced: 'lurker' },
+};
+
 // ------------------------------------------------------------------ supply drops
 //
 // The one thing on the map worth walking to.
@@ -98,11 +122,13 @@ let UID = 1;
 const mkEnemy = () => ({
   uid: 0, def: null, key: '', sheet: '', x: 0, y: 0, vx: 0, vy: 0, hp: 1, maxHp: 1, r: 10,
   flash: 0, state: 0, stateT: 0, shootT: 0, callT: 0,
+  callsLeft: 0,
   phase: 0, spawnT: 0, elite: false, dmgScale: 1, speedScale: 1,
   split: false, shielded: false, parentUid: 0, sweepT: 0,
+  countsForRound: false,
   atkState: A_NONE, atkT: 0, atkCd: 0, groanT: 0,
   // Wall-following state — see the stuck check in _updateEnemies.
-  sampleT: 0, lastX: 0, lastY: 0, detourT: 0, detour: 0,
+  sampleT: 0, lastX: 0, lastY: 0, detourT: 0, detour: 0, stuckT: 0, huntT: 0,
   // Created once per pool slot rather than per spawn — object churn in the hot path is
   // exactly what the pooling exists to avoid.
   anim: createAnim(), _idx: 0,
@@ -244,9 +270,14 @@ export class Run {
 
     // Director state
     this.spawnT = 0.9;
-    this.eliteIdx = 0;
-    this.minibossIdx = 0;
     this.eliteAlive = 0;
+    this.wave = 1;
+    this.waveState = 'combat';
+    this.waveBreakT = 0;
+    this._lastWaveCountdown = -1;
+    this.waveRemaining = this._waveBudget(this.wave);
+    this.waveTotal = this.waveRemaining;
+    this.waveForcedPending = !!OPENING_ROUNDS[this.wave]?.forced;
 
     // Preallocated depth-sort scratch for the draw pass. Two parallel arrays rather than
     // an array of objects: no allocation, and the sort only moves 32-bit values.
@@ -293,7 +324,10 @@ export class Run {
       this.bulletSize = w.size * s.sizeMul;
     }
     // How far away the auto-attack is willing to commit.
-    this.engageRange = this.melee ? this.meleeReach * 1.05 : this.bulletRange * 1.25;
+    // Never acquire a target beyond the projectile's lifetime. The former 1.25 multiplier
+    // made Maren loose arrows at bodies 800 units away even though an arrow only lives for
+    // 640, visibly wasting shots before the horde entered real range.
+    this.engageRange = this.melee ? this.meleeReach * 1.05 : this.bulletRange * 0.96;
 
     // Carry the weapon between attacks. The 64px walk/idle rows are body-only on every
     // sheet — the weapon only ever appears in a dedicated attack block — so without this
@@ -365,7 +399,8 @@ export class Run {
       const idx = avail.indexOf(pick);
       avail.splice(idx, 1); weights.splice(idx, 1);
       const lvl = (this.upgradeLevels[pick.id] || 0) + 1;
-      out.push({ def: pick, level: lvl, desc: pick.desc(lvl, this.melee) });
+      const name = typeof pick.name === 'function' ? pick.name(this.melee) : pick.name;
+      out.push({ def: pick, name, level: lvl, desc: pick.desc(lvl, this.melee) });
     }
     return out;
   }
@@ -398,6 +433,10 @@ export class Run {
     this.palette.update(dt);
 
     this._updatePlayer(dt, input);
+    // Supply and enemy placement both require the player's connected walkable region.
+    // Build it before either director runs; _updateEnemies later sees the same tile and
+    // its computeFlow call becomes a cheap no-op.
+    if (this.player.alive) this.world.computeFlow(this.player.x, this.player.y);
     this._updateDrop(dt);
     this._director(dt);
     this._updateEnemies(dt);
@@ -458,12 +497,15 @@ export class Run {
     p.dashCd = Math.max(0, p.dashCd - dt);
 
     if (p.dashCd === 0 && p.dashLeft < s.dashCharges) {
+      const wasEmpty = p.dashLeft === 0;
       p.dashLeft++;
       if (p.dashLeft < s.dashCharges) p.dashCd = s.dashCd;
+      if (wasEmpty) audio.sprintReady();
     }
 
     // --- sprint (was "dash") ---
-    if (input.consumeDash() && p.dashLeft > 0 && p.dashT <= 0) {
+    const dashRequested = input.consumeDash();
+    if (dashRequested && p.dashLeft > 0 && p.dashT <= 0) {
       let dx = input.moveX, dy = input.moveY;
       if (dx === 0 && dy === 0) { dx = Math.cos(p.aim); dy = Math.sin(p.aim); }
       const len = Math.hypot(dx, dy) || 1;
@@ -482,6 +524,8 @@ export class Run {
       // draw from) reads as a dive. playClip locks the anim for its own duration
       // rather than dashT, so a short last-charge dash doesn't truncate the roll.
       playClip(this.playerAnim, 'jump', 0, dirFromVector(p.dashDx, p.dashDy));
+    } else if (dashRequested) {
+      audio.unavailable();
     }
 
     if (p.dashT > 0) {
@@ -536,13 +580,18 @@ export class Run {
     // `hit` fraction. That is what makes the weapon feel like it has weight, and it's
     // the same contract the zombies' attacks run on.
     p.fireCd -= dt;
+    const heavyWasCooling = p.heavyCd > 0;
     p.heavyCd = Math.max(0, p.heavyCd - dt);
+    if (heavyWasCooling && p.heavyCd === 0) audio.heavyReady();
 
     // The held button. Deliberately does NOT replace the automatic swing: a player who
     // never holds it is playing the game exactly as before, and a player who does gets a
     // decision — when to spend it, and whether standing still long enough to land it is
     // worth what's walking toward them.
-    if (input.consumeHeavy && input.consumeHeavy() && p.heavyCd <= 0) p.heavyQueued = true;
+    if (input.consumeHeavy && input.consumeHeavy() && p.heavyCd <= 0) {
+      p.heavyQueued = true;
+      audio.heavyCommit();
+    }
 
     const wantsFire = !!target;   // ordinary attack stays fully automatic
     if (p.atkT <= 0 && p.heavyQueued) {
@@ -574,7 +623,7 @@ export class Run {
       if (p.shieldT <= 0) {
         p.shield = s.shieldMax;
         this.particles.ring(p.x, p.y, 16, 46, 0.5, this.palette.accent, 3);
-        audio.pickup();
+        audio.shieldReady();
       }
     }
     if (s.regen > 0 && p.hp < s.maxHp) {
@@ -599,7 +648,10 @@ export class Run {
     p.atkHeavy = heavy;
     p.fireCd = this.fireInterval;
     // Recorded swing for the player only — audio.swing() is also the zombies' wind-up.
-    if (this.melee) audio.swordSwing(heavy ? 1.25 : 1); else audio.shoot(heavy ? 0.8 : 1);
+    if (this.melee) {
+      if (this.axeEquipped) audio.axeSwing(heavy);
+      else audio.swordSwing(heavy ? 1.25 : 1);
+    } else audio.shoot(heavy ? 0.8 : 1);
     if (heavy) {
       juice.addShake(2.5);
       this.particles.ring(p.x, p.y, 10, 56, 0.3, trailColor(this.trailId, this.time), 3);
@@ -652,7 +704,7 @@ export class Run {
       e.vx += (dx / dist) * knock;
       e.vy += (dy / dist) * knock;
       this._spray(e.x, e.y, dx / dist, dy / dist, crit ? 16 : 9);
-      this._hurtEnemy(e, i, dmg, crit);
+      this._hurtEnemy(e, i, dmg, crit, false);
     }
 
     // The arc itself, drawn as a short-lived sweep of blood-flecked motes so a miss
@@ -665,7 +717,11 @@ export class Run {
         heavy ? 0.2 : 0.14, heavy ? 3.4 : 2.4,
         hits ? BLOOD_RGB : this.palette.primaryDim);
     }
-    if (hits) { audio.hit(); juice.addShake(heavy ? 5 : 1.6); }
+    if (hits) {
+      if (this.axeEquipped) audio.axeImpact(heavy);
+      else audio.hit();
+      juice.addShake(heavy ? 5 : 1.6);
+    }
     juice.addShake(heavy ? 2 : 0.5);
   }
 
@@ -706,7 +762,7 @@ export class Run {
       p.shieldT = this.stats.shieldRecharge;
       p.iframes = 0.55;
       this.particles.ring(p.x, p.y, 18, 78, 0.42, this.palette.accent, 4);
-      audio.pickup();
+      audio.shieldBlock();
       juice.addShake(5); juice.addChroma(0.3);
       return;
     }
@@ -731,7 +787,7 @@ export class Run {
         p.hp = Math.round(this.stats.maxHp * 0.45);
         p.iframes = 2.2;
         this._shockwave(p.x, p.y, 340, 90);
-        audio.levelUp();
+        audio.revive();
         juice.bigKill();
         this.onRevive?.();
       } else {
@@ -797,9 +853,13 @@ export class Run {
     const d = this.drop;
 
     if (d.active) {
-      d.t += dt;
-      d.life -= dt;
-      if (d.life <= 0) { d.active = false; this.onDropLost?.(); return; }
+      // Intermission freezes the deadline but not collection: setup time is exactly
+      // when a player should be allowed to reach supplies already on the ground.
+      if (this.waveState !== 'intermission') {
+        d.t += dt;
+        d.life -= dt;
+        if (d.life <= 0) { d.active = false; this.onDropLost?.(); return; }
+      }
 
       const p = this.player;
       if (p.alive) {
@@ -810,8 +870,14 @@ export class Run {
       return;
     }
 
+    // Do not schedule a new guarded objective during safe setup time.
+    if (this.waveState === 'intermission') return;
+
     this.dropT -= dt;
-    if (this.dropT <= 0) this._placeDrop();
+    // Do not introduce a guarded side objective during final cleanup. Hold a due drop
+    // for the opening/middle of the next round instead of making 1 LEFT jump back to 3.
+    const dropWindowOpen = this.waveRemaining > Math.max(3, this.waveTotal * 0.35);
+    if (this.dropT <= 0 && dropWindowOpen) this._placeDrop();
   }
 
   /**
@@ -831,11 +897,8 @@ export class Run {
       const dist = DROP_MIN_DIST + this.rng.next() * (DROP_MAX_DIST - DROP_MIN_DIST);
       let x = clamp(p.x + Math.cos(ang) * dist, a.x + TS * 3, a.x + a.w - TS * 3);
       let y = clamp(p.y + Math.sin(ang) * dist, a.y + TS * 3, a.y + a.h - TS * 3);
-      if (this.world.blocked(x, y, 22)) {
-        if (this.world.nearestOpen(x, y, 22)) continue;   // already open is impossible here
-        x = this.world._ox; y = this.world._oy;
-        if (this.world.blocked(x, y, 22)) continue;
-      }
+      if (!this.world.nearestReachable(x, y, 22, 14)) continue;
+      x = this.world._ox; y = this.world._oy;
       // Don't drop it on top of the player just because the nudge walked it back.
       if (Math.hypot(x - p.x, y - p.y) < DROP_MIN_DIST * 0.6) continue;
 
@@ -852,7 +915,6 @@ export class Run {
                          x + Math.cos(ga) * 80, y + Math.sin(ga) * 80, this.rng);
       }
       this.particles.ring(x, y, 20, 260, 1.1, SHARD_RGB, 6);
-      audio.milestone?.();
       this.onDropLanded?.();
       return;
     }
@@ -874,7 +936,7 @@ export class Run {
     this.particles.ring(d.x, d.y, 10, 200, 0.7, SHARD_RGB, 6);
     this.particles.burst(d.x, d.y, 26, 240, SHARD_RGB, { life: 0.9, size: 3.4 });
     this.particles.text(d.x, d.y - 30, 'SALVAGED', SHARD_RGB, 1.0, 18);
-    audio.shard();
+    audio.supplyTaken();
     juice.levelUp();
     this.onDropTaken?.();
     this.onLevelUp?.();
@@ -882,68 +944,153 @@ export class Run {
 
   // ---------------------------------------------------------------- director
 
+  _waveBudget(wave) {
+    const opening = OPENING_ROUNDS[wave];
+    if (opening) return Math.round(opening.budget * this.mods.waveCount);
+    // Linear growth keeps the early rounds brisk while still letting the faster spawn
+    // cadence and tougher enemy roster provide most of the late-game difficulty.
+    return Math.round((ROUND_BASE_ENEMIES + wave * ROUND_ENEMIES_STEP) * this.mods.waveCount);
+  }
+
+  _finishWave() {
+    this.waveState = 'intermission';
+    this.waveBreakT = ROUND_BREAK;
+    this._lastWaveCountdown = -1;
+    // A dead Spitter's last glob should not cross the map and punish somebody while the
+    // game is explicitly telling them the round is clear.
+    this.ebullets.clear();
+
+    // A clear guarantees one build decision, but does not stack a bonus on top of a
+    // level already earned during the round. This keeps Round 1 from opening two menus
+    // back-to-back and keeps combat uninterrupted until the safe setup phase.
+    if (this.pendingLevelUps <= 0) this.pendingLevelUps = 1;
+    juice.levelUp();
+    this.onWaveClear?.(this.wave, ROUND_BREAK);
+    this.onLevelUp?.();
+  }
+
+  _startWave() {
+    this.wave++;
+    this.waveState = 'combat';
+    this.waveRemaining = this._waveBudget(this.wave);
+    this.waveTotal = this.waveRemaining;
+    this.waveForcedPending = !!OPENING_ROUNDS[this.wave]?.forced;
+    this.spawnT = Math.min(this.spawnT, 0.75);
+    this.onWaveStart?.(this.wave);
+
+    // Specials belong to memorable rounds instead of an elapsed-time alarm. That keeps
+    // every seeded run's round composition identical even when one player clears faster
+    // than another. BAD NIGHT's eliteRate still tightens both schedules.
+    if (this.wave === 5) {
+      this._spawnMiniboss();
+    } else if (this.wave > 9) {
+      const eliteEvery = Math.max(2, Math.round(3 / this.mods.eliteRate));
+      const bossEvery = Math.max(3, Math.round(5 / this.mods.eliteRate));
+      if (this.wave % bossEvery === 0) this._spawnMiniboss();
+      else if (this.wave % eliteEvery === 0) this._spawnElite();
+    }
+  }
+
   _director(dt) {
     const m = this.mods;
 
-    // Spawn cadence ramps from ~1.3s down to ~0.26s over five minutes.
-    const t = this.time;
-    const base = Math.max(0.26, 1.35 - t * 0.0036);
+    if (this.waveState === 'intermission') {
+      this.waveBreakT = Math.max(0, this.waveBreakT - dt);
+      const count = Math.ceil(this.waveBreakT);
+      if (count > 0 && count <= 3 && count !== this._lastWaveCountdown) {
+        this._lastWaveCountdown = count;
+        audio.countdown(count);
+      }
+      if (this.waveBreakT <= 0) this._startWave();
+      return;
+    }
+
+    // Spawn cadence and composition are round-derived, not clear-time-derived. Fast and
+    // slow players therefore get the same seeded horde in round N.
+    const opening = OPENING_ROUNDS[this.wave];
+    const pressure = (this.wave - 1) * 35;
+    const base = opening ? opening.interval : Math.max(0.26, 1.35 - pressure * 0.0036);
     const interval = base / m.spawnRate;
 
     this.spawnT -= dt;
     // Deliberately NOT gated on enemy count. The pool cap is enforced inside
     // _spawnEnemy, which still consumes its RNG draws when it drops a spawn, so a
     // saturated village costs you the body without shifting the shared wave pattern.
-    if (this.spawnT <= 0) {
+    if (this.waveRemaining > 0 && this.spawnT <= 0) {
       this.spawnT = interval * (0.82 + this.rng.next() * 0.36);
-      const groupSize = 1 + Math.floor(t / 70) + (this.rng.next() < 0.22 ? 2 : 0);
-      const type = this._pickEnemyType();
+      const groupSize = opening
+        ? opening.group + (this.rng.next() < 0.22 ? 1 : 0)
+        : 1 + Math.floor((this.wave - 1) / 2) + (this.rng.next() < 0.22 ? 2 : 0);
+      const forced = opening?.forced && this.waveForcedPending;
+      const type = forced ? opening.forced : this._pickEnemyType();
+      if (forced) this.waveForcedPending = false;
       const def = ENEMIES[type];
-      const n = def.packMin
+      const requested = forced ? 1 : def.packMin
         ? def.packMin + Math.floor(this.rng.next() * (def.packMax - def.packMin + 1))
         : groupSize;
+      const n = Math.min(requested, this.waveRemaining);
+      this.waveRemaining -= n;
       for (let i = 0; i < n; i++) this._spawnEnemy(type, i, n, null, null, this.rng);
     }
 
-    while (this.minibossIdx < MINIBOSS_TIMES.length &&
-           t >= MINIBOSS_TIMES[this.minibossIdx] / m.eliteRate) {
-      this.minibossIdx++;
-      this._spawnMiniboss();
-    }
-
-    while (this.eliteIdx < ELITE_TIMES.length && t >= ELITE_TIMES[this.eliteIdx] / m.eliteRate) {
-      this.eliteIdx++;
-      this._spawnElite();
-    }
+    // Summons, splits and scheduled elites all count as part of the horde: the village
+    // is not safe until every hostile is gone, regardless of how it arrived.
+    if (this.waveRemaining <= 0 && this.enemies.active === 0) this._finishWave();
   }
 
   _pickEnemyType() {
     const keys = [], weights = [];
-    for (const k in ENEMIES) {
+    const progressionTime = (this.wave - 1) * 35;
+    const allowed = OPENING_ROUNDS[this.wave]?.types || null;
+    const candidates = allowed || Object.keys(ENEMIES);
+    for (const k of candidates) {
       const d = ENEMIES[k];
-      if (d.weight <= 0 || this.time < d.minTime) continue;
+      if (d.weight <= 0 || progressionTime < d.minTime) continue;
       keys.push(k);
       // Late-night bias toward the heavier archetypes.
-      const ramp = d.minTime > 0 ? 1 + Math.min(1.6, (this.time - d.minTime) / 120) : 1;
+      const ramp = d.minTime > 0 ? 1 + Math.min(1.6, (progressionTime - d.minTime) / 120) : 1;
       weights.push(d.weight * ramp);
     }
     return this.rng.weighted(keys, weights);
   }
 
   /** Spawn just outside the visible viewport, inside the arena, on walkable ground. */
-  _spawnPos(index, total, rng, spreadRad = 0.55) {
+  _spawnPos(index, total, rng, spreadRad = 0.55, radius = 14) {
     const p = this.player;
     const a = this.arena;
-    const baseAngle = rng.angle();
-    const ang = total > 1 ? baseAngle + (index / total - 0.5) * spreadRad : baseAngle;
-    const dist = 520 + rng.next() * 140;
-    let x = p.x + Math.cos(ang) * dist;
-    let y = p.y + Math.sin(ang) * dist;
-    x = clamp(x, a.x + TS * 2, a.x + a.w - TS * 2);
-    y = clamp(y, a.y + TS * 2, a.y + a.h - TS * 2);
-    // Nudge out of walls. Consumes no randomness, so it can't desync the daily.
-    if (!this.world.nearestOpen(x, y, 14)) { x = this.world._ox; y = this.world._oy; }
-    return { x, y };
+    let fx = p.x, fy = p.y, found = false;
+
+    // Always consume the same six angle/distance pairs. Which candidates are reachable
+    // depends on player position, so fixed consumption keeps the director RNG sequence
+    // stable even when different players stand on different streets.
+    for (let attempt = 0; attempt < 6; attempt++) {
+      const baseAngle = rng.angle();
+      const ang = total > 1 ? baseAngle + (index / total - 0.5) * spreadRad : baseAngle;
+      const distRoll = rng.next();
+      let dist = 520 + distRoll * 140;
+      // The first three rounds teach through readable pressure, not a long walk across
+      // the town. Spawn just past the viewport edge, then keep the emergence tell.
+      if (OPENING_ROUNDS[this.wave]?.near && this._r) {
+        const ca = Math.abs(Math.cos(ang)) || 1e-4;
+        const sa = Math.abs(Math.sin(ang)) || 1e-4;
+        const edge = Math.min((this._r.viewW / 2) / ca, (this._r.viewH / 2) / sa);
+        dist = edge + 70 + distRoll * 80;
+      }
+      let x = clamp(p.x + Math.cos(ang) * dist, a.x + TS * 2, a.x + a.w - TS * 2);
+      let y = clamp(p.y + Math.sin(ang) * dist, a.y + TS * 2, a.y + a.h - TS * 2);
+      if (!this.world.nearestReachable(x, y, radius, 10)) continue;
+      x = this.world._ox; y = this.world._oy;
+      if (!found && Math.hypot(x - p.x, y - p.y) > 300) {
+        fx = x; fy = y; found = true;
+      }
+    }
+
+    // The player's own location is necessarily in the connected component. This is only
+    // a pathological fallback for a map with no reachable point in six broad searches.
+    if (!found && this.world.nearestReachable(p.x, p.y, radius, 4)) {
+      fx = this.world._ox; fy = this.world._oy;
+    }
+    return { x: fx, y: fy };
   }
 
   /** @param {Rng} rng director spawns pass the wave stream; everything else rngAux. */
@@ -956,7 +1103,17 @@ export class Run {
     // draws, a player who kills slowly would advance the director's stream differently
     // from a player who kills fast, and the two would stop sharing a night. Dropping the
     // body when the pool is full is fine; letting that drop change the stream is not.
-    const pos = atX != null ? { x: atX, y: atY } : this._spawnPos(index, total, rng);
+    let pos;
+    if (atX != null) {
+      // Calls, splits and supply guards provide explicit coordinates. Nudge those into
+      // the same connected region too, since an 80px guard ring can cross a fence even
+      // when the crate itself is valid.
+      if (this.world.nearestReachable(atX, atY, def.r, 8)) {
+        pos = { x: this.world._ox, y: this.world._oy };
+      } else {
+        pos = this._spawnPos(index, total, rng, 0.55, def.r);
+      }
+    } else pos = this._spawnPos(index, total, rng, 0.55, def.r);
     const shootT = def.shootEvery ? def.shootEvery * (0.5 + rng.next() * 0.7) : 0;
     const phase = rng.angle();
     const groan = rng.next();
@@ -968,7 +1125,7 @@ export class Run {
     const e = this.enemies.spawn();
     if (!e) return null;
 
-    const tMin = this.time / 60;
+    const tMin = (this.wave - 1) * 35 / 60;
     const hpScale = (1 + tMin * 0.36) * this.mods.enemyHp;
     const spdScale = (1 + tMin * 0.045) * this.mods.enemySpeed;
 
@@ -988,6 +1145,7 @@ export class Run {
     e.groanT = 2 + groan * 8;
     e.shootT = shootT;
     e.callT = def.callEvery || 0;
+    e.callsLeft = def.maxCalls || 0;
     e.phase = phase;
     e.spawnT = 0.42;                 // rise-from-the-ground window, immune, no collision
     e.elite = !!def.elite;
@@ -996,7 +1154,12 @@ export class Run {
     e.split = false;
     e.shielded = false;
     e.parentUid = 0;
+    // Director and scheduled boss bodies belong to the stable round count. Guards,
+    // splits, summons and Thralls use explicit coordinates and appear as EXTRA instead
+    // of making the player's LEFT number climb backwards.
+    e.countsForRound = atX == null;
     e.sampleT = 0; e.lastX = e.x; e.lastY = e.y; e.detourT = 0; e.detour = 0;
+    e.stuckT = 0; e.huntT = 0;
     e.sweepT = def.sweepEvery || 0;
 
     // Something claws its way up out of the dirt.
@@ -1032,14 +1195,14 @@ export class Run {
     this._makeRoomForEvent();
     const e = this._spawnEnemy('butcher', 0, 1, null, null, this.rng);
     if (!e) return;
-    const tMin = this.time / 60;
+    const tMin = (this.wave - 1) * 35 / 60;
     e.maxHp = e.hp = def.hp * (1 + tMin * 0.42) * this.mods.enemyHp;
     e.spawnT = 1.6;                    // long telegraph — this is meant to be an event
     this.eliteAlive++;
     this.particles.ring(e.x, e.y, 40, 420, 1.4, BLOOD_RGB, 8);
     juice.addShake(12);
     juice.addFlash(0.10);
-    audio.bigDeath();
+    audio.bossSpawn();
     this.onMinibossSpawn?.(def);
   }
 
@@ -1047,11 +1210,11 @@ export class Run {
     this._makeRoomForEvent();
     const e = this._spawnEnemy('horror', 0, 1, null, null, this.rng);
     if (!e) return;
-    const tMin = this.time / 60;
+    const tMin = (this.wave - 1) * 35 / 60;
     e.maxHp = e.hp = ENEMIES.horror.hp * (1 + tMin * 0.55) * this.mods.enemyHp;
     e.spawnT = 1.1;
     this.eliteAlive++;
-    audio.tierShift();
+    audio.bossSpawn();
     juice.addShake(9);
     this.particles.ring(e.x, e.y, 30, 300, 1.0, BLOOD_RGB, 6);
     this.onEliteSpawn?.();
@@ -1086,10 +1249,28 @@ export class Run {
         if (dx0 * dx0 + dy0 * dy0 < 480 * 480) audio.groan(e.elite ? 0.55 : 1);
       }
 
+      // An ordinary final straggler gets a limited time to route in from off-screen.
+      // This catches disconnected-looking detours that technically make enough progress
+      // to evade the stationary watchdog below but still leave the player waiting.
+      const huntEligible = this.waveRemaining <= 0 && pool.active <= 5 &&
+        !e.elite && !def.miniboss && def.behavior !== 'orbitParent' &&
+        def.behavior !== 'standoff' && def.behavior !== 'circle';
+      if (huntEligible && this._r && !this._r.inView(e.x, e.y, 80)) {
+        e.huntT += dt;
+        if (e.huntT >= 7) {
+          this._relocateStuckEnemy(e);
+          continue;
+        }
+      } else e.huntT = 0;
+
       const dx = p.x - e.x, dy = p.y - e.y;
       const d = Math.hypot(dx, dy) || 1;
       let nx = dx / d, ny = dy / d;
-      const speed = def.speed * e.speedScale;
+      // The final ordinary stragglers close the distance more decisively. Bosses keep
+      // their authored timings and thralls stay tethered to their parent.
+      const huntBoost = this.waveRemaining <= 0 && pool.active <= 5 &&
+                        !e.elite && !def.miniboss && def.behavior !== 'orbitParent' ? 1.28 : 1;
+      const speed = def.speed * e.speedScale * huntBoost;
 
       // Steer down the flow field — the path around walls — instead of straight at the
       // survivor. Only the pursuers: circle (screamer) and standoff (spitter) hold a
@@ -1201,6 +1382,7 @@ export class Run {
               e.state = 2; e.stateT = def.chargeTime;
               e.vx = nx * def.chargeSpeed * this.mods.enemySpeed;
               e.vy = ny * def.chargeSpeed * this.mods.enemySpeed;
+              audio.runnerCharge();
             }
           } else if (e.state === 2) {       // committed sprint — no steering
             if (e.stateT <= 0) { e.state = 3; e.stateT = def.restTime; }
@@ -1261,7 +1443,7 @@ export class Run {
               e.state = 2; e.stateT = def.lungeTime;
               e.vx = nx * def.lungeSpeed * this.mods.enemySpeed;
               e.vy = ny * def.lungeSpeed * this.mods.enemySpeed;
-              audio.groan(0.7);
+              audio.lurkerLunge();
               juice.addShake(2.5);
             }
           } else if (e.state === 2) {
@@ -1321,8 +1503,18 @@ export class Run {
             const net = Math.hypot(e.x - e.lastX, e.y - e.lastY);
             if (net < speed * e.sampleT * 0.3) {
               e.detourT = 1.1;          // refreshed every window it stays stuck
-            }
+              e.stuckT += e.sampleT;
+            } else e.stuckT = 0;
             e.lastX = e.x; e.lastY = e.y; e.sampleT = 0;
+
+            // Detours remain the first response. Relocation is only a last-resort for an
+            // ordinary straggler that has spent six seconds grinding outside the view.
+            if (e.stuckT >= 6 && this.waveRemaining <= 0 && pool.active <= 5 &&
+                !e.elite && !def.miniboss && def.behavior !== 'orbitParent' &&
+                def.behavior !== 'standoff' && def.behavior !== 'circle' &&
+                this._r && !this._r.inView(e.x, e.y, 120)) {
+              this._relocateStuckEnemy(e);
+            }
           }
         }
         if (e.detourT > 0) {
@@ -1350,6 +1542,39 @@ export class Run {
     }
   }
 
+  _relocateStuckEnemy(e) {
+    const pos = this._huntSpawnPos(e.r);
+    e.x = pos.x; e.y = pos.y;
+    e.vx = e.vy = 0;
+    e.lastX = e.x; e.lastY = e.y;
+    e.sampleT = e.stuckT = e.huntT = e.detourT = 0;
+    e.detour = 0;
+    e.state = 0; e.stateT = 0;
+    e.atkState = A_NONE; e.atkT = 0;
+    e.spawnT = 0.42;
+  }
+
+  /** Reachable position just beyond the current screen edge for a recovered straggler. */
+  _huntSpawnPos(radius = 14) {
+    const p = this.player, r = this._r, a = this.arena;
+    let fallback = null;
+    for (let i = 0; i < 8; i++) {
+      const ang = this.rngAux.angle();
+      const ca = Math.cos(ang), sa = Math.sin(ang);
+      const edge = Math.min(
+        (r.viewW / 2 + 64) / Math.abs(ca || 1e-4),
+        (r.viewH / 2 + 64) / Math.abs(sa || 1e-4)
+      );
+      const x = clamp(p.x + ca * edge, a.x + TS * 2, a.x + a.w - TS * 2);
+      const y = clamp(p.y + sa * edge, a.y + TS * 2, a.y + a.h - TS * 2);
+      if (!this.world.nearestReachable(x, y, radius, 8)) continue;
+      const candidate = { x: this.world._ox, y: this.world._oy };
+      fallback = candidate;
+      if (!r.inView(candidate.x, candidate.y, 42)) return candidate;
+    }
+    return fallback || this._spawnPos(0, 1, this.rngAux, 0.55, radius);
+  }
+
   /**
    * The contact frame of an enemy swing. Re-checks range at the moment of impact rather
    * than at the moment the swing started — that re-check is precisely what makes the
@@ -1375,9 +1600,11 @@ export class Run {
 
   /** Screamer / Horror: pull more of them out of the dark. */
   _call(e, dt, def) {
+    if (e.callsLeft <= 0) return;
     e.callT -= dt;
     if (e.callT > 0) return;
     e.callT = def.callEvery;
+    e.callsLeft--;
     audio.scream();
     juice.addShake(2);
     this.particles.ring(e.x, e.y - 20, 12, 210, 0.7, this.palette.enemyBright, 4);
@@ -1399,6 +1626,7 @@ export class Run {
                            def.bulletDmg * e.dmgScale);
       }
       this.particles.ring(e.x, e.y, e.r, e.r * 3.4, 0.5, HAZARD_RGB, 4);
+      audio.horrorBurst();
       juice.addShake(3.5);
     }
     this._call(e, dt, def);
@@ -1432,7 +1660,7 @@ export class Run {
         if (seg) { seg.parentUid = e.uid; seg.phase = a; seg.spawnT = 0.3; }
       }
       this.particles.burst(e.x, e.y, 40, 330, BLOOD_RGB, { life: 0.8, size: 4 });
-      audio.bigDeath();
+      audio.bossSplit();
       juice.bigKill();
       this.onMinibossSplit?.(def);
     }
@@ -1469,7 +1697,7 @@ export class Run {
         }
         this.particles.ring(e.x, e.y, e.r, def.sweepRadius, 0.55, this.palette.bgGrid, 8);
         this.particles.burst(e.x, e.y, 30, 320, this.palette.bgGrid, { life: 0.7, size: 4 });
-        audio.bigDeath();
+        audio.bossSlam();
         juice.addShake(11);
       }
     }
@@ -1503,7 +1731,7 @@ export class Run {
                          { life: 0.5, size: 3, dir, spread: 1.5, drag: 0.86 });
   }
 
-  _hurtEnemy(e, index, dmg, isCrit) {
+  _hurtEnemy(e, index, dmg, isCrit, playImpact = true) {
     const def = e.def;
     let effective = def.armor ? Math.max(dmg * 0.25, dmg - def.armor) : dmg;
     if (e.shielded) {
@@ -1526,7 +1754,7 @@ export class Run {
       e.atkState = A_NONE;
       e.atkCd = def.atk ? def.atk.cool * 0.6 : 0.3;
     }
-    audio.hit();
+    if (playImpact) audio.hit();
     juice.smallHit();
     return false;
   }
@@ -1665,6 +1893,7 @@ export class Run {
       // reason it was worth making them solid.
       if (this.world.solidAt(b.x, b.y)) {
         this.particles.burst(b.x, b.y, 3, 60, this.palette.bgGrid, { life: 0.2, size: 1.8 });
+        if (b.arrow) audio.arrowWall();
         pool.releaseAt(i);
         continue;
       }
@@ -1681,7 +1910,8 @@ export class Run {
 
         const l = Math.hypot(b.vx, b.vy) || 1;
         this._spray(b.x, b.y, b.vx / l, b.vy / l, b.crit ? 12 : 6);
-        const died = this._hurtEnemy(e, j, b.dmg, b.crit);
+        const died = this._hurtEnemy(e, j, b.dmg, b.crit, !b.arrow);
+        if (b.arrow && !died) audio.arrowImpact();
         if (!died) {
           e.vx += (b.vx / l) * this.weapon.knock * 0.4;
           e.vy += (b.vy / l) * this.weapon.knock * 0.4;
@@ -1868,7 +2098,7 @@ export class Run {
 
     // The lantern the darkness pass punches out of the night, and how far it reaches —
     // both driven by the night phase, so the world closes in as the night wears on.
-    r.setLight(this.player.x, this.player.y, this.palette.lightR);
+    r.setLight(this.player.x, this.player.y, this.palette.lightR * this.mods.visibilityMul);
 
     this.world.drawGround(r);
     r.drawEdges(this.palette, this.arena);
@@ -1922,6 +2152,47 @@ export class Run {
     r.drawParticles(this.particles);
     this._drawTells(r);
     this._drawDrop(r);
+  }
+
+  // Called by Game after the bloom and darkness passes, so navigation UI remains crisp.
+  drawFaceOverlay(r) { this._drawHuntMarkers(r); }
+
+  /** Edge arrows for the final stragglers, once no more scheduled zombies are coming. */
+  _drawHuntMarkers(r) {
+    if (this.waveState !== 'combat' || this.waveRemaining > 0 || this.enemies.active > 5) return;
+    const ctx = r.ctx;
+    const color = BLOOD_RGB;
+    const dpr = r.dpr;
+    const cx = r.canvas.width / 2, cy = r.canvas.height / 2;
+    const hw = cx - 38 * dpr, hh = cy - 38 * dpr;
+
+    for (let i = 0; i < this.enemies.active; i++) {
+      const e = this.enemies.items[i];
+      if (r.inView(e.x, e.y, 70)) continue;
+      const dx = e.x - r.camX, dy = e.y - r.camY;
+      const ang = Math.atan2(dy, dx);
+      const edge = Math.min(
+        hw / Math.abs(Math.cos(ang) || 1e-4),
+        hh / Math.abs(Math.sin(ang) || 1e-4)
+      );
+      const ax = cx + Math.cos(ang) * edge;
+      const ay = cy + Math.sin(ang) * edge;
+      const pulse = 0.72 + Math.sin(this.time * 6 + i) * 0.22;
+
+      ctx.globalCompositeOperation = 'lighter';
+      r.glowOrb(ax, ay, 13 * dpr, color, 0.58 * pulse);
+      ctx.save();
+      ctx.translate(ax, ay);
+      ctx.rotate(ang);
+      ctx.beginPath();
+      ctx.scale(dpr, dpr);
+      ctx.moveTo(15, 0); ctx.lineTo(-7, -8); ctx.lineTo(-2, 0); ctx.lineTo(-7, 8);
+      ctx.closePath();
+      ctx.fillStyle = rgba(color, 0.92);
+      ctx.fill();
+      ctx.restore();
+      ctx.globalCompositeOperation = 'source-over';
+    }
   }
 
   /**
@@ -2363,6 +2634,7 @@ export class Run {
       bestCombo: this.bestCombo,
       tier: this.tier,
       tierName: TIERS[this.tier].name,
+      wave: this.wave,
     };
   }
 }

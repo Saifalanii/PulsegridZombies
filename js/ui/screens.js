@@ -30,16 +30,39 @@ const SCREENS = ['menu', 'brief', 'levelup', 'pause', 'gameover', 'shop', 'setti
 const V_PRIORITY = { chatter: 0, hurt: 1, levelUp: 1, tierShift: 1, eliteKill: 2, nearDeath: 3, death: 4, milestone: 4 };
 
 /** Upgrade card glyphs — same geometric language as the enemies. */
-function shapeSvg(sides, color) {
-  if (sides === 0) {
-    return `<svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.5" stroke="${color}" stroke-width="2.2"/><circle cx="12" cy="12" r="3" fill="${color}"/></svg>`;
-  }
-  const pts = [];
-  for (let i = 0; i < sides; i++) {
-    const a = -Math.PI / 2 + (i / sides) * Math.PI * 2;
-    pts.push(`${(12 + Math.cos(a) * 9).toFixed(2)},${(12 + Math.sin(a) * 9).toFixed(2)}`);
-  }
-  return `<svg viewBox="0 0 24 24" fill="none"><polygon points="${pts.join(' ')}" stroke="${color}" stroke-width="2.2" stroke-linejoin="round" fill="${color}22"/></svg>`;
+const UPGRADE_VISUALS = {
+  power: ['damage','blade'], rapid: ['offense','lightning'], multi: ['offense','multi'],
+  pierce: ['damage','pierce'], velocity: ['offense','fastArrow'], swift: ['mobility','boot'],
+  vitality: ['survival','heartPlus'], magnet: ['utility','magnet'], orbit: ['control','wire'],
+  crit: ['damage','target'], homing: ['utility','homing'], dashmaster: ['mobility','dash'],
+  thorns: ['defense','spikes'], regen: ['survival','heartPulse'], greed: ['utility','scrap'],
+  bigshot: ['damage','heavyArrow'], shield: ['defense','shield'], nova: ['control','burst'],
+};
+
+const UPGRADE_ICONS = {
+  blade: '<path d="M5 19l4-4m-2 6l-4-4m7-3L19 5l1-2-2 1-9 9 1 1zm5-7l3 3"/>',
+  lightning: '<path d="M13 2L5 13h6l-1 9 9-12h-6V2z"/>',
+  multi: '<path d="M5 18L18 5m-3 0h3v3M8 20L20 8m-3 12h3v-3M4 14L14 4m-3 0h3v3"/>',
+  pierce: '<path d="M3 12h15m-4-4l4 4-4 4M7 8l-3 4 3 4M20 5v14"/>',
+  fastArrow: '<path d="M6 12h13m-4-4l4 4-4 4M3 7h5M2 12h2M3 17h5"/>',
+  boot: '<path d="M7 3h7v7l5 4c2 2 1 5-2 5H6c-2 0-3-2-2-4l3-4V3zM7 11h7"/>',
+  heartPlus: '<path d="M12 21S4 16 4 9a4 4 0 018-2 4 4 0 018 2c0 7-8 12-8 12zM12 9v6M9 12h6"/>',
+  magnet: '<path d="M5 4v9a7 7 0 0014 0V4h-5v9a2 2 0 01-4 0V4H5zM5 8h5M14 8h5"/>',
+  wire: '<path d="M4 12c0-5 4-8 8-8s8 3 8 8-4 8-8 8-8-3-8-8zm4 0c0-3 2-4 4-4s4 1 4 4-2 4-4 4-4-1-4-4zM3 5l3 2M18 17l3 2"/>',
+  target: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/><path d="M12 1v5M12 18v5M1 12h5M18 12h5"/>',
+  homing: '<path d="M3 18c7 0 5-12 13-12h4m-4-3l4 3-4 3"/><circle cx="5" cy="18" r="2"/>',
+  dash: '<path d="M3 7l5 5-5 5M10 7l5 5-5 5M17 7l4 5-4 5"/>',
+  spikes: '<path d="M7 4l5 3 5-3 2 7-2 9H7l-2-9 2-7zM8 10l-4-3M16 10l4-3M9 16l3-5 3 5"/>',
+  heartPulse: '<path d="M12 21S4 16 4 9a4 4 0 018-2 4 4 0 018 2c0 7-8 12-8 12zM5 13h4l2-4 2 7 2-3h4"/>',
+  scrap: '<path d="M7 3h10l4 9-9 9-9-9 4-9zM7 3l5 18 5-18M3 12h18"/>',
+  heavyArrow: '<path d="M3 12h14m-5-6l7 6-7 6M3 8h6M3 16h6M19 8v8"/>',
+  shield: '<path d="M12 2l8 3v6c0 5-3 9-8 11-5-2-8-6-8-11V5l8-3zM8 12l3 3 5-6"/>',
+  burst: '<path d="M12 2l2.5 6L20 4l-2 6 5 2-6 2 3 6-6-4-2 6-2-6-6 4 3-6-6-2 5-2-2-6 5.5 4L12 2z"/>',
+};
+
+function upgradeIconSvg(id) {
+  const [, icon] = UPGRADE_VISUALS[id] || ['utility', 'target'];
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${UPGRADE_ICONS[icon]}</svg>`;
 }
 
 export class UI {
@@ -310,7 +333,7 @@ export class UI {
     btn.textContent = locked ? 'TONIGHT IS SPENT' : 'GO OUT TONIGHT';
 
     if (!locked) {
-      $('daily-note').textContent = 'Everyone walks the same village tonight. One attempt.';
+      $('daily-note').textContent = 'Same village and horde. Your Stockpile still applies. One attempt.';
     } else if (todayRun) {
       $('daily-note').textContent =
         `Held out ${formatTime(todayRun.time)} · ${todayRun.kills} put down. The next night unlocks in the countdown above.`;
@@ -336,7 +359,7 @@ export class UI {
       sub.textContent = `You missed a day. The ${lost}-day streak is gone.`;
       sub.classList.add('bad');
     } else if (st.streak === 0) {
-      sub.textContent = 'Survive tonight to begin.';
+      sub.textContent = 'Go out tonight to begin.';
     }
 
     // Milestones.
@@ -382,7 +405,7 @@ export class UI {
       $('brief-mutator-desc').textContent = cfg.mutator.desc;
     } else {
       $('brief-mutator').textContent = 'AN ORDINARY NIGHT';
-      $('brief-mutator-desc').textContent = 'Standard rules. Practice freely — nothing is at stake.';
+      $('brief-mutator-desc').textContent = 'Standard rules. Unlimited runs; scrap is banked and your streak is unchanged.';
     }
 
     const core = coreFor(save.data.equippedWeapon);
@@ -391,6 +414,14 @@ export class UI {
       `<div>SURVIVOR<b>${core.name}</b></div>` +
       `<div>LANTERN<b>${trail.name}</b></div>` +
       `<div>SCRAP<b>▣ ${save.data.shards.toLocaleString()}</b></div>`;
+
+    const moveSide = save.data.settings.leftHanded ? 'RIGHT' : 'LEFT';
+    const actionSide = save.data.settings.leftHanded ? 'LEFT' : 'RIGHT';
+    $('brief-controls').innerHTML =
+      `<div><b>${moveSide}</b> drag to move</div>` +
+      `<div><b>${actionSide} TAP</b> sprint</div>` +
+      `<div><b>${actionSide} HOLD</b> heavy attack</div>` +
+      `<div><b>ATTACKS</b> swing on their own</div>`;
 
     // The radio only shows up for the real night — that's the one it keeps a log of.
     const rivalBlock = $('brief-rival');
@@ -410,7 +441,7 @@ export class UI {
     $('about-core-name').textContent = core.name;
     $('about-core-role').textContent = core.role;
     $('about-line').textContent = STAKES.line;
-    $('about-line2').textContent = STAKES.line2.replace('Nim', core.name);
+    $('about-line2').textContent = STAKES.line2.replace('{name}', core.name);
     $('about-signoff').textContent = STAKES.signoff;
     this.show('about');
     this.portrait('about-core-face', core)?.resize();
@@ -449,6 +480,39 @@ export class UI {
     const t = Math.floor(run.time);
     if (t !== L.time) { $('hud-time').textContent = formatTime(run.time); L.time = t; }
 
+    const waveSeconds = run.waveState === 'intermission' ? Math.ceil(run.waveBreakT) : -1;
+    let countedAlive = 0;
+    for (let i = 0; i < run.enemies.active; i++) {
+      if (run.enemies.items[i].countsForRound) countedAlive++;
+    }
+    const extraAlive = run.enemies.active - countedAlive;
+    const left = run.waveRemaining + countedAlive;
+    const waveKey = `${run.wave}:${run.waveState}:${left}:${extraAlive}:${waveSeconds}`;
+    if (waveKey !== L.wave) {
+      const alive = run.enemies.active;
+      $('hud-wave').textContent = run.waveState === 'intermission'
+        ? `ROUND ${run.wave} CLEAR · ${waveSeconds}s`
+        : left > 0
+          ? `ROUND ${run.wave} · ${left} LEFT${extraAlive ? ` · +${extraAlive} EXTRA` : ''}`
+          : `ROUND ${run.wave} · CLEAR ${extraAlive} EXTRA`;
+      $('hud-wave').classList.toggle('break', run.waveState === 'intermission');
+      $('hud-wave').classList.toggle('hunt', run.waveState === 'combat' && run.waveRemaining <= 0 && alive <= 5);
+      L.wave = waveKey;
+    }
+
+    const actionKey = `${p.dashLeft}:${Math.ceil(p.dashCd * 10)}`;
+    if (actionKey !== L.action) {
+      const node = $('hud-action');
+      if (p.dashLeft > 0) {
+        node.textContent = `SPRINT READY · ${p.dashLeft}`;
+        node.classList.add('ready');
+      } else {
+        node.textContent = `SPRINT ${(p.dashCd || 0).toFixed(1)}s`;
+        node.classList.remove('ready');
+      }
+      L.action = actionKey;
+    }
+
     if (run.tier !== L.tier) { $('hud-tier').textContent = run.palette.tierName; L.tier = run.tier; }
 
     const sh = Math.round(run.runShards);
@@ -478,17 +542,20 @@ export class UI {
     $('lvl-n').textContent = level;
     const wrap = $('upgrade-cards');
     wrap.innerHTML = '';
-    const color = getComputedStyle(document.documentElement).getPropertyValue('--c').trim() || '#3ee';
-
     choices.forEach((c) => {
-      const card = el('button', 'up-card');
+      const [category] = UPGRADE_VISUALS[c.def.id] || ['utility'];
+      const card = el('button', `up-card cat-${category}`);
       card.type = 'button';
+      const cleanDesc = c.desc.replace(/\s*\(\d+\/\d+\)\s*$/, '');
+      const pips = Array.from({ length: c.def.max }, (_, i) =>
+        `<span class="${i < c.level ? 'on' : ''}"></span>`).join('');
       card.innerHTML =
-        `<div class="up-icon">${shapeSvg(c.def.icon, color)}</div>` +
+        `<div class="up-icon">${upgradeIconSvg(c.def.id)}</div>` +
         `<div class="up-body">` +
-        `<div class="up-name">${c.def.name}</div>` +
-        `<div class="up-desc">${c.desc}</div>` +
-        (c.level === 1 ? '<div class="up-new">NEW</div>' : '') +
+        `<div class="up-head"><div class="up-name">${c.name}</div><div class="up-cat">${category}</div></div>` +
+        `<div class="up-desc">${cleanDesc}</div>` +
+        `<div class="up-foot"><div class="up-pips" aria-label="Level ${c.level} of ${c.def.max}">${pips}</div>` +
+        (c.level === 1 ? '<div class="up-new">NEW</div>' : '') + `</div>` +
         `</div>`;
       card.addEventListener('click', (e) => {
         e.preventDefault();
@@ -499,6 +566,7 @@ export class UI {
       wrap.appendChild(card);
     });
     this.show('levelup');
+    requestAnimationFrame(() => wrap.querySelector('.up-card')?.focus());
   }
 
   // ------------------------------------------------------------ pause
@@ -510,6 +578,7 @@ export class UI {
       row('KILLS', run.kills) +
       row('SCRAP', '▣ ' + Math.round(run.runShards));
     this.show('pause');
+    requestAnimationFrame(() => $('btn-resume')?.focus());
     function row(k, v) { return `<div><span class="k">${k}</span><span class="v">${v}</span></div>`; }
   }
 
@@ -548,6 +617,7 @@ export class UI {
     $('go-stats').innerHTML =
       cell('SURVIVED', res.timeStr) +
       cell('KILLS', res.kills.toLocaleString()) +
+      cell('ROUND', res.wave) +
       cell('LEVEL', res.level) +
       cell('BEST CHAIN', 'x' + res.bestCombo) +
       cell('HOW LATE', res.tierName) +
@@ -579,8 +649,9 @@ export class UI {
       sNode.classList.add('gain');
       const m = streakResult.milestone;
       sNode.innerHTML = `<span class="big">${streakResult.streak}-NIGHT STREAK</span>` +
-        `${m.label} reached — <b>▣${m.shards}</b> bonus scrap` +
-        (m.unlockName ? `<span class="note">Unlocked: ${m.unlockName}</span>` : '');
+        `${m.label} reached — <b>▣${m.shards + (m.duplicateBonus || 0)}</b> bonus scrap` +
+        (m.duplicateBonus ? `<span class="note">Includes ▣${m.duplicateBonus} because the Fire Axe was already owned.</span>` : '') +
+        (m.unlockName && !m.duplicateBonus ? `<span class="note">Unlocked: ${m.unlockName}</span>` : '');
     } else if (streakResult?.extended) {
       sNode.classList.add('gain');
       const next = MILESTONES.find((m) => m.days > streakResult.streak);
@@ -834,7 +905,7 @@ export class UI {
     };
 
     addToggle('Mute all audio', 'Silences music and effects.', 'muted', (v) => audio.setMuted(v));
-    addSlider('Music volume', 'Adaptive layers scale with danger.', 'musicVolume', 0, 1, 0.05, (v) => audio.setMusicVolume(v));
+    addSlider('Music volume', 'Run theme and sparse village ambience.', 'musicVolume', 0, 1, 0.05, (v) => audio.setMusicVolume(v));
     addSlider('Effects volume', 'Weapons, impacts, pickups.', 'sfxVolume', 0, 1, 0.05, (v) => audio.setSfxVolume(v));
     addSlider('Screen shake', 'Set to zero if motion bothers you.', 'screenShake', 0, 1.5, 0.1, (v) => { juice.shakeScale = v; });
     addToggle('Haptics', 'Vibration on impacts, where supported.', 'haptics', (v) => { juice.haptics = v; });
@@ -843,7 +914,7 @@ export class UI {
     addSeg('Quality', 'Lower this if the frame rate dips.', 'quality',
            [['auto', 'AUTO'], ['high', 'HIGH'], ['low', 'LOW']], (v) => g.setQuality(v));
 
-    addSeg('Shot sound', 'Fires constantly, so pick what you can live with. Tap to hear it.',
+    addSeg('Bow attack sound', 'Used by Maren’s automatic shots. Tap to hear it.',
            'shootSound', SHOOT_STYLE_IDS.map((id) => [id, SHOOT_STYLE_LABELS[id].toUpperCase()]),
            (v) => {
              audio.shootStyle = v;

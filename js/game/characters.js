@@ -65,7 +65,7 @@ export const coreFor = (weaponId) => CORES[weaponId] || CORES.weapon_machete;
  */
 export const RIVAL = {
   name: 'THE BAND',
-  role: 'Voice on the emergency channel',
+  role: 'Something dead on the emergency channel',
   // Draws a real zombie head rather than the abstract eyes-in-a-shape face — see the
   // sheet choice in Portrait.draw. `pupilRgb` and `eyeStyle` below are now only consulted
   // if that sheet fails to decode, which is the one case the fallback still covers.
@@ -83,9 +83,9 @@ export const RIVAL = {
  */
 export const STAKES = {
   title: 'WHY ANY OF THIS',
-  line: 'Every night the village fills up again and forgets everyone who held it.',
-  line2: 'Holt walks back in anyway. The streak is the only proof any of it happened.',
-  signoff: '— The emergency band finds this funny. Prove it wrong.',
+  line: 'At midnight the village fills up again. Morning never quite arrives.',
+  line2: '{name} walks back in anyway. The Band keeps the count when the village resets.',
+  signoff: '— Something dead owns the emergency frequency. Prove it wrong.',
 };
 
 // ---------------------------------------------------------------- lantern flavour
@@ -98,6 +98,6 @@ export const TRAIL_BLURBS = {
   trail_ember: 'Three nights running. Something noticed.',
   trail_prism: 'A week of stubbornness, refracted.',
   trail_void:  'Thirty nights. Burns cold and does not gutter.',
-  trail_toxic: 'Sickly. Attracts things. You knew that.',
-  trail_rose:  'Visible for a mile. Purely a flex.',
+  trail_toxic: 'Sickly green light. Cosmetic; it attracts nothing.',
+  trail_rose:  'Visible for a mile. Cosmetic, deeply unsubtle.',
 };

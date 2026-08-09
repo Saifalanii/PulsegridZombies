@@ -76,7 +76,10 @@ export class Juice {
       const t = this._seed;
       this.ox = (Math.sin(t * 1.9) + Math.sin(t * 5.3) * 0.5) * this.shake * 0.6;
       this.oy = (Math.cos(t * 2.3) + Math.cos(t * 6.1) * 0.5) * this.shake * 0.6;
-      this.rot = Math.sin(t * 1.3) * this.shake * 0.00045;
+      // Pixel-art tiles cannot stay aligned under even a tiny continuous rotation: the
+      // seams shimmer as the sampler chooses different edge pixels each frame. Keep the
+      // impact through translation while the world remains axis-aligned.
+      this.rot = 0;
     } else {
       this.ox = this.oy = this.rot = 0;
     }
@@ -97,15 +100,15 @@ export class Juice {
   kill(scale = 1) {
     this.addShake(2.6 * scale);
     this.addHitStop(0.022 * scale);
-    this.addChroma(0.14 * scale);
+    this.addChroma(0.045 * scale);
     this.vibrate(12);
   }
 
   bigKill() {
     this.addShake(13);
     this.addHitStop(0.10);
-    this.addChroma(0.6);
-    this.addFlash(0.28);
+    this.addChroma(0.35);
+    this.addFlash(0.16);
     this.punchZoom(0.055);
     this.vibrate([0, 26, 30, 50]);
   }
@@ -120,8 +123,8 @@ export class Juice {
   }
 
   levelUp() {
-    this.addFlash(0.16);
-    this.addChroma(0.3);
+    this.addFlash(0.08);
+    this.addChroma(0.12);
     this.punchZoom(0.04);
     this.vibrate([0, 18, 40, 18]);
   }
@@ -129,8 +132,8 @@ export class Juice {
   dash() { this.addShake(2.2); this.punchZoom(-0.022); this.vibrate(10); }
 
   tierShift() {
-    this.addFlash(0.22);
-    this.addChroma(0.5);
+    this.addFlash(0.12);
+    this.addChroma(0.22);
     this.punchZoom(0.05);
     this.vibrate([0, 20, 60, 20, 60, 30]);
   }

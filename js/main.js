@@ -52,7 +52,8 @@ class Game {
     // first frame) runs fall back to generation, which only matters for the menu's own
     // ambient background if the player taps Play in that first instant.
     this.mapData = null;
-    this._loadMap();
+    this.mapReady = this._loadMap();
+    this._beginningRun = false;
 
     this._applySettings();
     this._bindLifecycle();
@@ -199,6 +200,9 @@ class Game {
     const cfg = makeRunConfig('practice');
     cfg.mapData = this.mapData;
     this.ambient = new Run(cfg);
+    // Prime reachability while the decorative survivor is still alive; spawn placement
+    // keeps using this field after we disable combat for the menu background.
+    this.ambient.world.computeFlow(this.ambient.player.x, this.ambient.player.y);
     this.ambient.player.alive = false;   // no shooting, no collision damage
     this.ambient.stats.magnet = 0;
     this.renderer.snapCamera(0, 0);
@@ -220,7 +224,14 @@ class Game {
     this.ui.showBrief(this.pendingConfig);
   }
 
-  beginRun() {
+  async beginRun() {
+    if (this._beginningRun) return;
+    this._beginningRun = true;
+    // A Daily must never depend on whether the player tapped faster than town.json
+    // arrived. _loadMap catches failures, so this always settles and the procedural
+    // fallback remains available when the authored map genuinely cannot load.
+    await this.mapReady;
+    this._beginningRun = false;
     const cfg = this.pendingConfig || makeRunConfig(this.lastMode, todayKey());
     this.pendingConfig = null;
     cfg.mapData = this.mapData;
@@ -239,6 +250,14 @@ class Game {
     this.run.onLevelUp = () => { this._queueLevelUp(); say('levelUp'); };
     this.run.onGameOver = () => this._endRun();
     this.run.onTierChange = (tier) => { this.ui.banner(tier.name); say('tierShift'); };
+    this.run.onWaveClear = (wave, seconds) => {
+      audio.waveClear();
+      this.ui.banner(`ROUND ${wave} CLEAR — ${seconds}s`);
+    };
+    this.run.onWaveStart = (wave) => {
+      this.ui.banner(`ROUND ${wave}`);
+      audio.waveStart();
+    };
     this.run.onEliteSpawn = () => this.ui.banner('SOMETHING BIG');
     this.run.onEliteKilled = () => say('eliteKill');
     this.run.onMinibossSpawn = (def) => {
@@ -251,9 +270,10 @@ class Game {
       this.ui.banner('IT CAME APART');
       say('eliteKill');
     };
-    this.run.onRevive = () => { this.ui.banner('SECOND WIND'); say('nearDeath'); };
-    this.run.onDropLanded = () => this.ui.banner('SUPPLY DROP');
-    this.run.onDropLost = () => this.ui.banner('SUPPLIES LOST');
+    this.run.onRevive = () => { this.ui.banner('ADRENALINE SHOT'); say('nearDeath'); };
+    this.run.onDropLanded = () => { audio.supplyDrop(); this.ui.banner('SUPPLY DROP'); };
+    this.run.onDropTaken = () => this.ui.banner('SUPPLIES SECURED');
+    this.run.onDropLost = () => { audio.supplyLost(); this.ui.banner('SUPPLIES LOST'); };
     this.run.onHurt = () => {
       // Below a quarter health the survivor stops joking about the hit and starts
       // commenting on being nearly dead — same trigger, different register.
@@ -263,6 +283,7 @@ class Game {
 
     this.renderer.snapCamera(this.run.player.x, this.run.player.y);
     juice.reset();
+    this.input.reset();
     this.ui.resetHudCache();
     this.ui.hideAll();
     this.ui.hideVoice();
@@ -270,12 +291,10 @@ class Game {
     this.state = S_PLAYING;
     this.acc = 0;
 
-    // Just unlock — the run's music is the looping track, started by _syncTrack. The
-    // synthesised ambience that startMusic() used to spin up ran a whole node graph and
-    // did per-frame work in audio.update, all of it now redundant under a real music
-    // track and playing on top of it. That double audio load was the run lag the music
-    // volume slider appeared to "fix": turning music down quietened the ambience graph.
+    // Just unlock — _syncTrack starts the composed theme plus the lightweight sparse
+    // village events. The continuous wind/drone graph stays off on phones.
     audio.unlock();
+    audio.waveStart();
     this.ui.banner(cfg.isDaily ? (cfg.mutator?.name || 'TONIGHT') : 'PRACTICE NIGHT');
   }
 
@@ -290,7 +309,12 @@ class Game {
     if (run.pendingLevelUps <= 0) return;
     const choices = run.rollUpgradeChoices(3);
     if (!choices.length) { run.pendingLevelUps = 0; return; }
+    // The menu may open while the player's thumb is still moving. Mobile standalone
+    // PWAs do not always deliver that pointer's eventual release back to the canvas
+    // once the overlay has taken over, so explicitly end the gesture at the boundary.
+    this.input.reset();
     this.state = S_LEVELUP;
+    this.ui.setHudVisible(false);
     this.ui.showUpgrades(choices, run.player.level, (choice) => {
       run.applyUpgrade(choice);
       run.pendingLevelUps--;
@@ -307,13 +331,16 @@ class Game {
 
   pause() {
     if (this.state !== S_PLAYING) return;
+    this.input.reset();
     this.state = S_PAUSED;
+    this.ui.setHudVisible(false);
     this.ui.showPause(this.run);
     audio.setIntensity(0.1);
   }
 
   resume() {
     if (this.state !== S_PAUSED) return;
+    this.input.reset();
     this.ui.hideAll();
     this.ui.setHudVisible(true);
     this.state = S_PLAYING;
@@ -352,9 +379,10 @@ class Game {
       }
     }
     save.recordRun({
-      isDaily: res.isDaily && !abandoned,
+      isDaily: res.isDaily,
+      abandoned,
       date: res.date,
-      score: res.score, wave: res.tier, time: res.time,
+      score: res.score, wave: res.wave, time: res.time,
       kills: res.kills, shards: res.shards,
     });
 
@@ -403,7 +431,8 @@ class Game {
 
       this.ui.updateHud(this.run);
 
-      if (this._pendingLevelUpCheck && this.run.pendingLevelUps > 0 && !this.run.over) {
+      if (this._pendingLevelUpCheck && this.run.pendingLevelUps > 0 && !this.run.over &&
+          this.run.waveState === 'intermission') {
         this._pendingLevelUpCheck = false;
         this._openLevelUp();
       }
@@ -441,6 +470,8 @@ class Game {
     if (want === this._track) return;
     this._track = want;
     if (want) audio.playTrack(want); else audio.stopTrack();
+    if (want === 'run') audio.startMusic(true);
+    else audio.stopMusic(0.8);
   }
 
   _updateAmbient(dt) {
@@ -487,7 +518,10 @@ class Game {
       this.ui.positionVoiceNear(pos.x, pos.y);
     }
 
-    if (this.state === S_PLAYING) r.drawStick(this.input.stickVisual(), pal);
+    if (this.state === S_PLAYING) {
+      r.drawStick(this.input.stickVisual(), pal);
+      r.drawAction(this.input.actionVisual(), pal);
+    }
 
     // Keep the CSS palette in step with the arena.
     this.ui.setHue(pal.hue, pal.colorblind ? pal.hue : pal.hue + 20);
@@ -543,6 +577,12 @@ class Game {
 
 function boot() {
   window.game = new Game();
+
+  // Installed-app shortcuts land on the requested briefing instead of the generic menu.
+  const shortcutMode = new URLSearchParams(location.search).get('mode');
+  if (shortcutMode === 'daily' || shortcutMode === 'practice') {
+    requestAnimationFrame(() => window.game.openBrief(shortcutMode));
+  }
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
     navigator.serviceWorker.register('sw.js').catch((e) => console.warn('[nightfall] sw failed', e));

@@ -237,30 +237,38 @@ class SaveStore {
     const milestone = MILESTONES.find(
       (m) => m.days === this.data.streak && !this.data.claimedMilestones.includes(m.days)
     );
+    let awardedMilestone = milestone || null;
     if (milestone) {
       this.data.claimedMilestones.push(milestone.days);
-      this.data.shards += milestone.shards;
-      this.data.totalShardsEarned += milestone.shards;
+      // The 14-night reward is also sold in the Stockpile. A player who bought Briar
+      // early should not reach the milestone and receive literally nothing in that slot.
+      const duplicateBonus = milestone.unlock && this.has(milestone.unlock)
+        ? (milestone.duplicateShards || 0)
+        : 0;
+      const scrapAward = milestone.shards + duplicateBonus;
+      this.data.shards += scrapAward;
+      this.data.totalShardsEarned += scrapAward;
       if (milestone.unlock) this.unlock(milestone.unlock);
+      if (duplicateBonus) awardedMilestone = { ...milestone, duplicateBonus };
     }
 
     this.saveNow();
-    return { streak: this.data.streak, extended, reset, milestone: milestone || null };
+    return { streak: this.data.streak, extended, reset, milestone: awardedMilestone };
   }
 
-  recordRun({ isDaily, date, score, wave, time, kills, shards }) {
+  recordRun({ isDaily, abandoned = false, date, score, wave, time, kills, shards }) {
     const d = this.data;
     d.totalRuns++;
     d.totalKills += kills;
     d.bestTime = Math.max(d.bestTime, time);
-    if (isDaily) {
+    if (!abandoned && isDaily) {
       const prev = d.dailyScores[date];
       if (!prev || score > prev.score) d.dailyScores[date] = { score, wave, time, kills };
       d.bestDailyScore = Math.max(d.bestDailyScore, score);
       // Keep history bounded; 60 days is plenty for the compare-to-yesterday screen.
       const keys = Object.keys(d.dailyScores).sort();
       while (keys.length > 60) delete d.dailyScores[keys.shift()];
-    } else {
+    } else if (!abandoned) {
       d.bestPracticeScore = Math.max(d.bestPracticeScore, score);
     }
     d.shards += shards;
@@ -274,7 +282,7 @@ class SaveStore {
 export const MILESTONES = [
   { days: 3,  shards: 150,  label: '3-night streak',  unlock: 'trail_ember', unlockName: 'Ember Lantern' },
   { days: 7,  shards: 400,  label: '7-night streak',  unlock: 'trail_prism', unlockName: 'Broken Prism' },
-  { days: 14, shards: 900,  label: '14-night streak', unlock: 'weapon_axe',  unlockName: 'Fire Axe (free)' },
+  { days: 14, shards: 900,  label: '14-night streak', unlock: 'weapon_axe',  unlockName: 'Fire Axe (free)', duplicateShards: 700 },
   { days: 30, shards: 2500, label: '30-night streak', unlock: 'trail_void',  unlockName: 'Cold Fire' },
 ];
 

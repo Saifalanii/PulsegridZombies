@@ -1,6 +1,6 @@
 // Service worker: cache-first for the app shell, so Nightfall Village is fully playable
-// offline the moment it's been opened once. All the sound is still synthesised at
-// runtime; the art is not, so the shell now has to carry real image assets.
+// offline the moment it's been opened once. Most effects are synthesised at runtime;
+// the recorded swings and art are cached as part of the shell.
 //
 // Bump CACHE when shipping: the old cache is deleted on activate.
 
@@ -29,7 +29,8 @@
 // installed player on the old world.js would still snag on canopies the map no longer
 // collides. Stale-while-revalidate would fix it on the *second* launch; the bump fixes it
 // on the first.
-const CACHE = 'nightfall-v14';
+// v29: story/mutator corrections, weapon-aware upgrades and the expanded event SFX pass.
+const CACHE = 'nightfall-v29';
 
 // On localhost the cache-first strategy below happily serves the module you edited
 // thirty seconds ago, and you debug a file the page isn't running. Development gets

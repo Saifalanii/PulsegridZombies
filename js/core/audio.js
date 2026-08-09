@@ -975,6 +975,175 @@ export class AudioEngine {
     }
   }
 
+  // -------------------------------------------------------- readable game events
+
+  /** The axe needs mass, not the machete's fast blade whisper. */
+  axeSwing(heavy = false) {
+    if (this._throttle('axeSwing', 70)) return;
+    const weight = heavy ? 1.25 : 1;
+    this._playSample((this._swingFlip++ & 1) ? 'sword_b' : 'sword_a', {
+      gain: 0.42 * weight,
+      rate: heavy ? 0.62 : 0.74,
+    });
+    this._noiseHit({ dur: heavy ? 0.28 : 0.21, gain: 0.095 * weight, freq: 260,
+      sweepTo: 1250, q: 0.8, type: 'bandpass', attack: 0.08 });
+    this._tone({ type: 'sine', freq: 78, toFreq: 42, dur: 0.18, gain: 0.055 * weight });
+  }
+
+  axeImpact(heavy = false) {
+    if (this._throttle('axeImpact', 35)) return;
+    const weight = heavy ? 1.3 : 1;
+    this._noiseHit({ dur: 0.19, gain: 0.20 * weight, freq: 520, sweepTo: 70,
+      q: 0.55, type: 'lowpass' });
+    this._tone({ type: 'sine', freq: 82, toFreq: 30, dur: 0.22, gain: 0.12 * weight });
+  }
+
+  arrowImpact() {
+    if (this._throttle('arrowImpact', 30)) return;
+    this._noiseHit({ dur: 0.055, gain: 0.09, freq: 2100, sweepTo: 520, q: 1.8 });
+    this._tone({ type: 'triangle', freq: 310, toFreq: 120, dur: 0.07, gain: 0.045 });
+  }
+
+  arrowWall() {
+    if (this._throttle('arrowWall', 45)) return;
+    this._noiseHit({ dur: 0.035, gain: 0.055, freq: 3900, sweepTo: 1400, q: 3 });
+    this._tone({ type: 'triangle', freq: 1100, toFreq: 540, dur: 0.06, gain: 0.026 });
+  }
+
+  sprintReady() {
+    if (this._throttle('sprintReady', 180)) return;
+    this._tone({ type: 'sine', freq: 720, toFreq: 980, dur: 0.09, gain: 0.035 });
+    this._tone({ type: 'triangle', freq: 980, toFreq: 1320, dur: 0.09, gain: 0.028, delay: 0.07 });
+  }
+
+  unavailable() {
+    if (this._throttle('unavailable', 220)) return;
+    this._tone({ type: 'square', freq: 210, toFreq: 130, dur: 0.07, gain: 0.035 });
+  }
+
+  heavyCommit() {
+    if (this._throttle('heavyCommit', 180)) return;
+    this._noiseHit({ dur: 0.16, gain: 0.055, freq: 180, sweepTo: 760,
+      q: 1, type: 'bandpass', attack: 0.07 });
+    this._tone({ type: 'sine', freq: 95, toFreq: 145, dur: 0.17, gain: 0.045 });
+  }
+
+  heavyReady() {
+    if (this._throttle('heavyReady', 300)) return;
+    this._tone({ type: 'triangle', freq: 330, toFreq: 520, dur: 0.12, gain: 0.032 });
+  }
+
+  shieldBlock() {
+    if (this._throttle('shieldBlock', 100)) return;
+    this._noiseHit({ dur: 0.11, gain: 0.13, freq: 1800, sweepTo: 430, q: 2.5 });
+    this._tone({ type: 'triangle', freq: 760, toFreq: 260, dur: 0.15, gain: 0.075 });
+  }
+
+  shieldReady() {
+    if (this._throttle('shieldReady', 250)) return;
+    this._tone({ type: 'sine', freq: 420, toFreq: 840, dur: 0.22, gain: 0.045 });
+    this._tone({ type: 'triangle', freq: 840, dur: 0.16, gain: 0.025, delay: 0.16 });
+  }
+
+  revive() {
+    this._noiseHit({ dur: 0.5, gain: 0.12, freq: 180, sweepTo: 1200, q: 0.8,
+      type: 'bandpass', attack: 0.2 });
+    [110, 165, 247].forEach((f, i) =>
+      this._tone({ type: 'triangle', freq: f, toFreq: f * 1.5, dur: 0.45,
+        gain: 0.09, delay: i * 0.09, attack: 0.03 }));
+  }
+
+  waveStart() {
+    if (this._throttle('waveStart', 400)) return;
+    [0, 0.12, 0.24].forEach((delay, i) => {
+      this._tone({ type: 'sine', freq: 92 - i * 8, toFreq: 46, dur: 0.18,
+        gain: 0.10 + i * 0.02, delay });
+      this._noiseHit({ dur: 0.08, gain: 0.07, freq: 320, sweepTo: 90,
+        q: 0.6, type: 'lowpass', delay });
+    });
+  }
+
+  countdown(n) {
+    if (this._throttle('countdown', 500)) return;
+    const final = n === 1;
+    this._tone({ type: final ? 'triangle' : 'sine', freq: final ? 520 : 330,
+      toFreq: final ? 760 : 220, dur: final ? 0.18 : 0.11,
+      gain: final ? 0.07 : 0.05 });
+  }
+
+  waveClear() {
+    if (this._throttle('waveClear', 400)) return;
+    [0, 5, 9].forEach((semi, i) => this._tone({ type: 'triangle',
+      freq: midiToFreq(ROOT + 22 + semi), dur: 0.34, gain: 0.075,
+      delay: i * 0.085, attack: 0.01 }));
+  }
+
+  supplyDrop() {
+    if (this._throttle('supplyDrop', 500)) return;
+    this._tone({ type: 'sine', freq: 1450, toFreq: 850, dur: 0.28, gain: 0.055 });
+    this._tone({ type: 'sine', freq: 980, toFreq: 620, dur: 0.28, gain: 0.04, delay: 0.12 });
+    this._noiseHit({ dur: 0.2, gain: 0.12, freq: 380, sweepTo: 55,
+      q: 0.6, type: 'lowpass', delay: 0.22 });
+  }
+
+  supplyTaken() {
+    [0, 4, 7, 12].forEach((semi, i) => this._tone({ type: 'triangle',
+      freq: midiToFreq(ROOT + 28 + semi), dur: 0.28, gain: 0.065,
+      delay: i * 0.055 }));
+  }
+
+  supplyLost() {
+    if (this._throttle('supplyLost', 500)) return;
+    this._tone({ type: 'triangle', freq: 620, toFreq: 190, dur: 0.5, gain: 0.07 });
+    this._noiseHit({ dur: 0.35, gain: 0.045, freq: 900, sweepTo: 100,
+      q: 0.7, type: 'lowpass', attack: 0.08 });
+  }
+
+  runnerCharge() {
+    if (this._throttle('runnerCharge', 160)) return;
+    this._formantVoice({ f0: 125, toF0: 220, dur: 0.28, gain: 0.07,
+      attack: 0.02, breath: 0.8, rasp: 0.45, q: 8, wobble: 14 });
+    this._noiseHit({ dur: 0.18, gain: 0.05, freq: 420, sweepTo: 1800,
+      q: 1.3, type: 'bandpass', delay: 0.1 });
+  }
+
+  lurkerLunge() {
+    if (this._throttle('lurkerLunge', 180)) return;
+    this._formantVoice({ f0: 78, toF0: 42, dur: 0.48, gain: 0.10,
+      attack: 0.05, breath: 0.7, rasp: 0.8, sub: 0.7, q: 5 });
+    this._noiseHit({ dur: 0.26, gain: 0.075, freq: 260, sweepTo: 2100,
+      q: 1, type: 'bandpass', attack: 0.09 });
+  }
+
+  horrorBurst() {
+    if (this._throttle('horrorBurst', 240)) return;
+    this._noiseHit({ dur: 0.36, gain: 0.17, freq: 780, sweepTo: 90,
+      q: 0.7, type: 'lowpass' });
+    this._tone({ type: 'sawtooth', freq: 120, toFreq: 38, dur: 0.42, gain: 0.075 });
+  }
+
+  bossSpawn() {
+    this._formantVoice({ f0: 72, toF0: 34, dur: 1.2, gain: 0.16,
+      attack: 0.08, breath: 0.8, rasp: 1, sub: 1, q: 4 });
+    this._noiseHit({ dur: 1.1, gain: 0.12, freq: 900, sweepTo: 45,
+      q: 0.5, type: 'lowpass', attack: 0.25 });
+  }
+
+  bossSplit() {
+    this._noiseHit({ dur: 0.55, gain: 0.24, freq: 1100, sweepTo: 70,
+      q: 0.8, type: 'lowpass' });
+    this._formantVoice({ f0: 105, toF0: 38, dur: 0.65, gain: 0.12,
+      attack: 0.01, breath: 0.8, rasp: 1, sub: 0.7, q: 5 });
+  }
+
+  bossSlam() {
+    if (this._throttle('bossSlam', 250)) return;
+    this._tone({ type: 'sine', freq: 68, toFreq: 24, dur: 0.65, gain: 0.20 });
+    this._noiseHit({ dur: 0.7, gain: 0.23, freq: 500, sweepTo: 35,
+      q: 0.45, type: 'lowpass' });
+    this._noiseHit({ dur: 0.18, gain: 0.10, freq: 2800, sweepTo: 380, q: 1.1 });
+  }
+
   uiClick() {
     this._tone({ type: 'square', freq: 620, toFreq: 880, dur: 0.045, gain: 0.05 });
   }
@@ -1048,7 +1217,7 @@ export class AudioEngine {
   //   - the event table reweights toward bodies, dragging, and structural collapse
   // Nothing new starts *pulsing*. The air thickens; a track never drops.
 
-  startMusic() {
+  startMusic(lightweight = false) {
     if (!this.ready || this._playing) return;
     this._playing = true;
     const t = this.ctx.currentTime;
@@ -1060,7 +1229,10 @@ export class AudioEngine {
     this.musicBus.gain.setValueAtTime(0.0001, t);
     // Slower than the old 1.6s fade: ambience should arrive without an entrance.
     this.musicBus.gain.exponentialRampToValueAtTime(Math.max(0.0002, this.musicVol), t + 4.0);
-    this._startAmbience();
+    // The composed run track already supplies the bed. On phones, keep only the sparse
+    // dogs, crows, creaks and distant bodies instead of running the full wind/drone graph
+    // underneath it; the event scheduler below still responds to combat intensity.
+    if (!lightweight) this._startAmbience();
   }
 
   stopMusic(fade = 1.2) {

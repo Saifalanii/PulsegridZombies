@@ -72,6 +72,13 @@ export class Input {
     el.addEventListener('pointerup', (e) => this._onUp(e), opts);
     el.addEventListener('pointercancel', (e) => this._onUp(e), opts);
     el.addEventListener('pointerleave', (e) => this._onUp(e), opts);
+    el.addEventListener('lostpointercapture', (e) => this._onUp(e), opts);
+
+    // A standalone iOS/Android PWA can retarget or swallow the final pointer event when
+    // a full-screen menu appears over the canvas. Listen above the canvas as a fallback
+    // so a lifted thumb can never leave either virtual stick latched.
+    window.addEventListener('pointerup', (e) => this._onUp(e), { passive: true, capture: true });
+    window.addEventListener('pointercancel', (e) => this._onUp(e), { passive: true, capture: true });
 
     // Belt-and-braces against iOS double-tap zoom / long-press callout over the canvas.
     el.addEventListener('touchstart', (e) => e.preventDefault(), opts);
@@ -89,15 +96,25 @@ export class Input {
       if (e.code === 'ArrowUp' || e.code === 'ArrowDown' || e.code === 'ArrowLeft' || e.code === 'ArrowRight') e.preventDefault();
     });
     window.addEventListener('keyup', (e) => this.keys.delete(e.code));
-    window.addEventListener('blur', () => { this.keys.clear(); this._resetSticks(); });
+    window.addEventListener('blur', () => this.reset());
+    window.addEventListener('pagehide', () => this.reset());
+    document.addEventListener('visibilitychange', () => {
+      if (document.hidden) this.reset();
+    });
   }
 
-  _resetSticks() {
+  /** Release every continuous input when gameplay is covered or interrupted. */
+  reset() {
+    this.keys.clear();
     this.stick.active = false; this.stick.id = -1;
     this.aimStick.active = false; this.aimStick.id = -1;
     this.moveX = this.moveY = this.moveMag = 0;
     this.aimX = this.aimY = this.aimMag = 0;
+    this.hold = null;
+    this.dashPressed = false;
+    this.heavyPressed = false;
     this.firing = false;
+    this.mouse.down = false;
   }
 
   _onDown(e) {
@@ -126,7 +143,8 @@ export class Input {
       // Dash cannot fire here, on the press, or every heavy would dash first: the two
       // actions share one zone, and the only thing that tells them apart is how long the
       // finger stays down. So the press just starts a clock.
-      this.hold = { id: e.pointerId, t: performance.now(), fired: false };
+      this.hold = { id: e.pointerId, t: performance.now(), fired: false,
+                    x: e.clientX, y: e.clientY };
     }
   }
 
@@ -245,5 +263,16 @@ export class Input {
     const len = Math.hypot(dx, dy);
     const k = len > MAX_RADIUS ? MAX_RADIUS / len : 1;
     return { ox: this.stick.ox, oy: this.stick.oy, kx: this.stick.ox + dx * k, ky: this.stick.oy + dy * k, r: MAX_RADIUS };
+  }
+
+  /** Hold-progress ring for the action thumb: a tap stays a sprint, a full ring commits heavy. */
+  actionVisual() {
+    if (!this.hold) return null;
+    return {
+      x: this.hold.x,
+      y: this.hold.y,
+      progress: this.hold.fired ? 1 : clamp((performance.now() - this.hold.t) / HOLD_HEAVY, 0, 1),
+      committed: this.hold.fired,
+    };
   }
 }
