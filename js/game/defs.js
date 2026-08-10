@@ -371,30 +371,6 @@ export const SHOP = [
   { id: 'weapon_axe', cat: 'Weapons', name: 'Fire Axe', cost: 1400,
     desc: WEAPONS.weapon_axe.desc },
 
-  // Passives (tiered — each requires the previous)
-  { id: 'hp_1', cat: 'Supplies', name: 'Padding I',   cost: 250,  desc: '+15 starting health' },
-  { id: 'hp_2', cat: 'Supplies', name: 'Padding II',  cost: 550,  desc: '+15 more health', req: 'hp_1' },
-  { id: 'hp_3', cat: 'Supplies', name: 'Padding III', cost: 1000, desc: '+20 more health', req: 'hp_2' },
-
-  { id: 'dmg_1', cat: 'Supplies', name: 'Grip I',   cost: 300,  desc: '+6% damage' },
-  { id: 'dmg_2', cat: 'Supplies', name: 'Grip II',  cost: 700,  desc: '+6% more damage', req: 'dmg_1' },
-  { id: 'dmg_3', cat: 'Supplies', name: 'Grip III', cost: 1300, desc: '+8% more damage', req: 'dmg_2' },
-
-  { id: 'spd_1', cat: 'Supplies', name: 'Boots I',  cost: 280, desc: '+5% move speed' },
-  { id: 'spd_2', cat: 'Supplies', name: 'Boots II', cost: 650, desc: '+5% more move speed', req: 'spd_1' },
-
-  { id: 'xp_1', cat: 'Supplies', name: 'Instinct I',  cost: 320, desc: '+12% experience gain' },
-  { id: 'xp_2', cat: 'Supplies', name: 'Instinct II', cost: 750, desc: '+12% more experience', req: 'xp_1' },
-
-  { id: 'shard_1', cat: 'Supplies', name: 'Scavenging I',   cost: 220, desc: '+15% scrap earned' },
-  { id: 'shard_2', cat: 'Supplies', name: 'Scavenging II',  cost: 500, desc: '+15% more scrap', req: 'shard_1' },
-  { id: 'shard_3', cat: 'Supplies', name: 'Scavenging III', cost: 950, desc: '+20% more scrap', req: 'shard_2' },
-
-  { id: 'magnet_start', cat: 'Supplies', name: 'Scrap Hook', cost: 400, desc: '+60% starting pickup radius' },
-  { id: 'dash_charge',  cat: 'Supplies', name: 'Reserve Sprint', cost: 900, desc: '+1 sprint charge' },
-  { id: 'revive',       cat: 'Supplies', name: 'Adrenaline Shot', cost: 2200,
-    desc: 'Once per run, get back up at 45% health' },
-
   // Cosmetics — the lantern you carry, and the light it throws.
   { id: 'trail_toxic', cat: 'Lanterns', name: 'Bile Lantern', cost: 400, desc: 'Sick green light' },
   { id: 'trail_rose',  cat: 'Lanterns', name: 'Signal Flare', cost: 400, desc: 'Hot pink, deeply unsubtle' },
@@ -410,24 +386,10 @@ export const STREAK_LOCKED = {
 // ------------------------------------------------------- derived meta stats
 
 export function metaStats(save) {
-  const has = (id) => save.data.unlocked.includes(id);
-  let hp = 0, dmg = 1, spd = 1, xp = 1, shard = 1, magnet = 1, dashCharges = 0;
-  if (has('hp_1')) hp += 15;
-  if (has('hp_2')) hp += 15;
-  if (has('hp_3')) hp += 20;
-  if (has('dmg_1')) dmg *= 1.06;
-  if (has('dmg_2')) dmg *= 1.06;
-  if (has('dmg_3')) dmg *= 1.08;
-  if (has('spd_1')) spd *= 1.05;
-  if (has('spd_2')) spd *= 1.05;
-  if (has('xp_1')) xp *= 1.12;
-  if (has('xp_2')) xp *= 1.12;
-  if (has('shard_1')) shard *= 1.15;
-  if (has('shard_2')) shard *= 1.15;
-  if (has('shard_3')) shard *= 1.20;
-  if (has('magnet_start')) magnet *= 1.6;
-  if (has('dash_charge')) dashCharges += 1;
-  return { hp, dmg, spd, xp, shard, magnet, dashCharges, revive: has('revive') };
+  // Permanent stat purchases were removed. Every story attempt now begins from the same
+  // combat baseline; only the equipped weapon/lantern and saved story checkpoint vary.
+  return { hp: 0, dmg: 1, spd: 1, xp: 1, shard: 1, magnet: 1,
+           dashCharges: 0, revive: false };
 }
 
 /** XP needed to go from level n to n+1. Superlinear so late levels feel earned. */

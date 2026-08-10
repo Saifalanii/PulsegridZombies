@@ -410,9 +410,13 @@ class Game {
     if (this.state !== S_PLAYING || this.run?.waveState !== 'intermission') return;
     this.input.reset();
     this.serviceKind = kind;
-    this.ui.showService(kind, this.run);
     this.state = S_SERVICE;
     this.ui.setHudVisible(false);
+    if (kind === 'workshop') {
+      this.ui.openWorkshop();
+    } else {
+      this.ui.showService(kind, this.run);
+    }
   }
 
   closeService() {

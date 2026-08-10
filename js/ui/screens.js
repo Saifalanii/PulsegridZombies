@@ -278,7 +278,11 @@ export class UI {
     click('btn-go-shop', () => { this._shopReturn = 'gameover'; this.show('shop'); });
 
     click('btn-shop', () => { this._shopReturn = 'menu'; this.show('shop'); });
-    click('btn-shop-back', () => { audio.uiBack(); this.show(this._shopReturn || 'menu'); });
+    click('btn-shop-back', () => {
+      audio.uiBack();
+      if (this._shopReturn === 'service') g.closeService();
+      else this.show(this._shopReturn || 'menu');
+    });
     click('btn-settings', () => { this._settingsReturn = 'menu'; this.show('settings'); });
     click('btn-settings-back', () => { audio.uiBack(); this.show(this._settingsReturn || 'menu'); });
     click('btn-stats', () => this.show('stats'));
@@ -331,7 +335,7 @@ export class UI {
     $('daily-best-label').textContent = 'DEEPEST ROUND';
     $('daily-best').textContent = story.highestWave || '—';
     $('daily-countdown').textContent = `${story.discoveries.length} / 6`;
-    $('menu-shards').textContent = save.data.shards.toLocaleString();
+    if ($('menu-shards')) $('menu-shards').textContent = save.data.shards.toLocaleString();
     const storyBtn = $('btn-daily');
     storyBtn.disabled = false;
     storyBtn.classList.remove('done');
@@ -360,7 +364,7 @@ export class UI {
     $('daily-date').textContent = today;
     $('daily-mutator').textContent = mut.name;
     $('daily-mutator-desc').textContent = mut.desc;
-    $('menu-shards').textContent = save.data.shards.toLocaleString();
+    if ($('menu-shards')) $('menu-shards').textContent = save.data.shards.toLocaleString();
 
     // --- daily lock ---
     // Three states, not two: unplayed, played-and-finished (we have a score to show),
@@ -885,13 +889,22 @@ export class UI {
 
   // ------------------------------------------------------------ shop
 
+  openWorkshop() {
+    this._shopReturn = 'service';
+    this.show('shop');
+  }
+
   buildShop() {
     $('shop-shards').textContent = save.data.shards.toLocaleString();
     const list = $('shop-list');
     list.innerHTML = '';
 
     const groups = {};
-    for (const item of SHOP) (groups[item.cat] ||= []).push(item);
+    // The old passive Supplies shelf is deliberately gone. Scrap buys expression and
+    // sidegrades here, while combat power is earned inside each run at the Safehouse.
+    for (const item of SHOP) {
+      if (item.cat === 'Weapons' || item.cat === 'Lanterns') (groups[item.cat] ||= []).push(item);
+    }
 
     // Story-locked lanterns appear alongside purchasable ones so the reward is visible.
     for (const id in STREAK_LOCKED) {
@@ -916,7 +929,7 @@ export class UI {
       if (TRAIL_BLURBS[item.id]) item.desc = TRAIL_BLURBS[item.id];
     }
 
-    for (const cat of ['Weapons', 'Supplies', 'Lanterns']) {
+    for (const cat of ['Weapons', 'Lanterns']) {
       const items = groups[cat];
       if (!items) continue;
       const group = el('div', 'shop-group');

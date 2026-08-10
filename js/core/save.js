@@ -187,9 +187,15 @@ class SaveStore {
     story.stage = Math.max(story.stage, stage);
     const reward = {
       1: 'trail_ember', 2: 'trail_prism', 3: 'trail_void',
-      4: 'magnet_start', 5: 'dash_charge', 6: 'revive',
     }[stage];
     if (reward && !this.has(reward)) this.data.unlocked.push(reward);
+    // Later discoveries fund Workshop choices instead of granting permanent combat
+    // stats. Award once, at the same moment the discovery becomes permanent.
+    const scrapReward = { 4: 150, 5: 250, 6: 400 }[stage] || 0;
+    if (fresh && scrapReward) {
+      this.data.shards += scrapReward;
+      this.data.totalShardsEarned += scrapReward;
+    }
     this.saveNow();
     return fresh;
   }

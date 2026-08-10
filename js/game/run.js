@@ -528,6 +528,8 @@ export class Run {
       // Western municipal building, repurposed as the locked emergency transmitter.
       { kind: 'radio', label: 'RADIO STATION', short: 'R', color: [194, 132, 255],
         x: this.world.ox + 25.5 * cell, y: this.world.oy + 14.5 * cell },
+      { kind: 'workshop', label: 'WORKSHOP', short: 'W', color: [255, 190, 86],
+        x: this.world.ox + 33.5 * cell, y: this.world.oy + 23.5 * cell },
     ] : [
       { kind: 'safehouse', label: 'SAFEHOUSE', short: 'S', color: [86, 216, 255],
         x: this.player.x + 300, y: this.player.y + 250 },
@@ -535,6 +537,8 @@ export class Run {
         x: this.player.x + 360, y: this.player.y - 280 },
       { kind: 'radio', label: 'RADIO STATION', short: 'R', color: [194, 132, 255],
         x: this.player.x - 360, y: this.player.y - 260 },
+      { kind: 'workshop', label: 'WORKSHOP', short: 'W', color: [255, 190, 86],
+        x: this.player.x - 320, y: this.player.y + 240 },
     ];
 
     this.world.computeFlow(this.player.x, this.player.y);
@@ -557,6 +561,7 @@ export class Run {
     const p = this.player;
     for (const s of this.services) {
       if (s.kind === 'radio' && (!this.cfg.isStory || (this.cfg.storyStage || 0) < 3)) continue;
+      if (s.kind === 'workshop' && !this.cfg.isStory) continue;
       const dx = p.x - s.x, dy = p.y - s.y;
       const inside = dx * dx + dy * dy <= s.radius * s.radius;
       if (inside && !s.wasInside) {
@@ -2425,6 +2430,7 @@ export class Run {
     const pulse = 0.82 + Math.sin(this.time * 5) * 0.18;
     for (const s of this.services) {
       if (s.kind === 'radio' && (!this.cfg.isStory || (this.cfg.storyStage || 0) < 3)) continue;
+      if (s.kind === 'workshop' && !this.cfg.isStory) continue;
       ctx.globalCompositeOperation = 'lighter';
       r.glowOrb(s.x, s.y, open ? 42 : 24, s.color, open ? 0.2 * pulse : 0.055);
       ctx.globalCompositeOperation = 'source-over';
@@ -2435,7 +2441,8 @@ export class Run {
       ctx.ellipse(s.x, s.y + 4, s.radius, 18, 0, 0, TAU);
       ctx.stroke();
 
-      const w = s.kind === 'safehouse' ? 98 : s.kind === 'radio' ? 112 : 70;
+      const w = s.kind === 'safehouse' ? 98 : s.kind === 'radio' ? 112
+        : s.kind === 'workshop' ? 96 : 70;
       ctx.fillStyle = 'rgba(4,9,15,0.88)';
       ctx.fillRect(s.x - w / 2, s.y - 48, w, 27);
       ctx.strokeStyle = rgba(s.color, 0.72);
@@ -2460,6 +2467,7 @@ export class Run {
     ctx.font = '800 10px system-ui, sans-serif';
     for (const s of this.services) {
       if (s.kind === 'radio' && (!this.cfg.isStory || (this.cfg.storyStage || 0) < 3)) continue;
+      if (s.kind === 'workshop' && !this.cfg.isStory) continue;
       const pt = r.worldToScreen(s.x, s.y, frameJuice);
       if (pt.x >= 46 && pt.x <= r.w - 46 && pt.y >= 82 && pt.y <= r.h - 72) continue;
       const x = clamp(pt.x, 48, r.w - 48);
