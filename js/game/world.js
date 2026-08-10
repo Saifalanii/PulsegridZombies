@@ -1099,8 +1099,10 @@ export class World {
   // and benches that are supposed to block. When the author is specific, believe them.
   static SMALL_OBSTACLE = 0;
 
-  static TOP_PX = 26;   // passable band above a footprint — most of a tile's upper half
-  static SIDE_PX = 20;  // shaved off each exposed vertical edge
+  // A small forgiveness margin avoids snagging without allowing the survivor to stand
+  // visibly inside thin authored fences.
+  static TOP_PX = 6;
+  static SIDE_PX = 6;
 
   /** True if the *cell* is solid. Out of bounds counts as solid: the arena has walls. */
   _solidCell(gx, gy) {

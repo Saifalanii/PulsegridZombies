@@ -24,7 +24,7 @@ const el = (tag, cls, html) => {
   return n;
 };
 
-const SCREENS = ['menu', 'brief', 'levelup', 'pause', 'gameover', 'shop', 'settings', 'stats', 'about'];
+const SCREENS = ['menu', 'brief', 'service', 'pause', 'gameover', 'shop', 'settings', 'stats', 'about'];
 
 /** Voice priorities — a louder line interrupts a quieter one, never the reverse. */
 const V_PRIORITY = { chatter: 0, hurt: 1, levelUp: 1, tierShift: 1, eliteKill: 2, nearDeath: 3, death: 4, milestone: 4 };
@@ -256,37 +256,24 @@ export class UI {
       });
     };
 
-    click('btn-daily', () => g.openBrief('daily'));
+    click('btn-daily', () => g.openBrief('story'));
     click('btn-practice', () => g.openBrief('practice'));
     click('btn-begin', () => g.beginRun());
     click('btn-brief-back', () => { audio.uiBack(); this.show('menu'); });
 
     click('btn-pause', () => g.pause());
+    click('btn-next-round', () => g.startNextRound());
+    click('btn-service-close', () => g.closeService());
+    click('btn-install-radio', () => g.installRadioPart());
+    click('btn-clinic-heal', () => g.useClinic());
     click('btn-resume', () => g.resume());
     click('btn-quit', () => {
-      const btn = $('btn-quit');
-      if (g.run?.cfg?.isDaily && !this._quitArmed) {
-        this._quitArmed = true;
-        btn.textContent = 'TAP AGAIN — END TONIGHT';
-        $('pause-quit-note').textContent = 'Tonight’s one attempt will be spent.';
-        clearTimeout(this._quitTimer);
-        this._quitTimer = setTimeout(() => {
-          this._quitArmed = false;
-          if (btn) btn.textContent = 'ABANDON TONIGHT';
-          const note = $('pause-quit-note');
-          if (note) note.textContent = 'Ending now spends tonight’s attempt. Collected scrap is still banked.';
-        }, 3500);
-        return;
-      }
       this._quitArmed = false;
       g.abandon();
     });
     click('btn-pause-settings', () => { this._settingsReturn = 'pause'; this.show('settings'); });
 
-    // After a Daily, "again" can only mean Practice — the attempt is spent. Falling
-    // through to openBrief('daily') would just bounce off its guard with a toast,
-    // which reads as a broken button rather than a deliberate rule.
-    click('btn-again', () => g.openBrief(g.lastMode === 'daily' && save.dailyLocked() ? 'practice' : g.lastMode));
+    click('btn-again', () => g.openBrief(g.lastMode));
     click('btn-menu', () => this.show('menu'));
     click('btn-go-shop', () => { this._shopReturn = 'gameover'; this.show('shop'); });
 
@@ -326,6 +313,48 @@ export class UI {
   // ------------------------------------------------------------ menu
 
   refreshMenu() {
+    clearInterval(this._countdownTimer);
+    const story = save.data.story;
+    const objectives = [
+      ['SAFEHOUSE', 'Reach the Safehouse after Round 1'],
+      ['RADIO PART', 'Reach Round 3 and recover a guarded supply drop'],
+      ['BUTCHER’S KEY', 'Reach Round 5 and kill the Butcher'],
+      ['RADIO STATION', 'Use the Butcher’s key at the purple R marker'],
+      ['BATTERY', 'Reach Round 7 and recover the transmitter battery'],
+      ['FREQUENCY', 'Reach Round 8 and take the code from a Spitter'],
+    ];
+    $('daily-date').textContent = story.stage >= 3 ? 'THE LOCKED FREQUENCY' : 'THE FIRST SIGNAL';
+    $('daily-mutator').textContent = story.stage >= 6 ? 'CHAPTER TWO COMPLETE' : 'CURRENT OBJECTIVE';
+    $('daily-mutator-desc').textContent = story.stage >= 6
+      ? 'The decoded transmission points beneath the village.'
+      : objectives[story.stage][1];
+    $('daily-best-label').textContent = 'DEEPEST ROUND';
+    $('daily-best').textContent = story.highestWave || '—';
+    $('daily-countdown').textContent = `${story.discoveries.length} / 6`;
+    $('menu-shards').textContent = save.data.shards.toLocaleString();
+    const storyBtn = $('btn-daily');
+    storyBtn.disabled = false;
+    storyBtn.classList.remove('done');
+    storyBtn.textContent = story.stage >= 6 ? 'RETURN TO THE VILLAGE' : 'CONTINUE THE NIGHT';
+    $('daily-note').textContent = 'Unlimited attempts. Story discoveries and recovered scrap survive every reset.';
+
+    $('streak-count').textContent = story.stage;
+    $('streak-flame').classList.toggle('cold', story.stage === 0);
+    $('streak-sub').textContent = story.stage >= 6
+      ? 'Chapter Two complete. The Band’s location points beneath the village.'
+      : `Next: ${objectives[story.stage][0]}`;
+    document.querySelector('.streak-unit').textContent = 'STORY BEATS FOUND';
+
+    const msStory = $('milestones');
+    msStory.innerHTML = '';
+    objectives.forEach(([name], i) => {
+      const done = story.stage > i;
+      const node = el('div', `milestone${done ? ' done' : story.stage === i ? ' next' : ''}`);
+      node.innerHTML = `<span class="d">${i + 1}</span>${done ? 'FOUND' : name}`;
+      msStory.appendChild(node);
+    });
+    return;
+
     const today = todayKey();
     const mut = mutatorFor(today);
     $('daily-date').textContent = today;
@@ -418,17 +447,30 @@ export class UI {
   // ------------------------------------------------------------ brief
 
   showBrief(cfg) {
-    $('brief-mode').textContent = cfg.isDaily ? 'TONIGHT' : 'PRACTICE NIGHT';
-    $('brief-date').textContent = cfg.isDaily
-      ? `${cfg.dateKey}  •  ONE FIXED ROUTE`
-      : 'The horde and rewards shift each run. Does not count toward your streak.';
+    $('brief-mode').textContent = cfg.isStory
+      ? save.data.story.stage >= 3 ? 'CHAPTER TWO' : 'CHAPTER ONE'
+      : 'QUICK RUN';
+    $('brief-date').textContent = cfg.isStory
+      ? `${save.data.story.stage >= 3 ? 'THE LOCKED FREQUENCY' : 'THE FIRST SIGNAL'} · DISCOVERIES SURVIVE THE RESET`
+      : 'An unlimited sandbox. Score and scrap do not enter the story.';
 
     if (cfg.mutator) {
       $('brief-mutator').textContent = cfg.mutator.name;
       $('brief-mutator-desc').textContent = cfg.mutator.desc;
     } else {
-      $('brief-mutator').textContent = 'REHEARSAL';
-      $('brief-mutator-desc').textContent = 'Learn the streets and chase a score. Scrap does not cross back from Practice.';
+      $('brief-mutator').textContent = cfg.isStory ? 'CURRENT OBJECTIVE' : 'QUICK RUN';
+      const objectives = [
+        'Survive Round 1, then find the Safehouse.',
+        'Reach Round 3, then recover a guarded supply drop and inspect its radio component.',
+        'Reach Round 5 and take the key from the Butcher.',
+        'Find the Radio Station and use the Butcher’s key.',
+        'Reach Round 7 and recover a transmitter battery from the supply convoy.',
+        'Reach Round 8, kill a Spitter carrying the frequency code, and return it.',
+        'The decoded signal is coming from beneath the village.',
+      ];
+      $('brief-mutator-desc').textContent = cfg.isStory
+        ? objectives[save.data.story.stage]
+        : 'Test weapons and builds. Nothing here changes story progress.';
     }
 
     const core = coreFor(save.data.equippedWeapon);
@@ -453,11 +495,11 @@ export class UI {
         `<div><b>SPACE</b> sprint · <b>E</b> heavy attack</div>` +
         `<div><b>AUTO-AIM</b> targets the nearest threat</div>`;
     }
-    $('btn-begin').textContent = cfg.isDaily ? 'START TONIGHT' : 'START PRACTICE';
+    $('btn-begin').textContent = cfg.isStory ? 'CONTINUE THE NIGHT' : 'START QUICK RUN';
 
     // The radio only shows up for the real night — that's the one it keeps a log of.
     const rivalBlock = $('brief-rival');
-    if (cfg.isDaily) {
+    if (cfg.isStory) {
       rivalBlock.classList.remove('hidden');
       $('brief-rival-line').textContent = voice.rival('dailyStart');
       this.portrait('brief-rival-face', RIVAL)?.resize();
@@ -550,6 +592,19 @@ export class UI {
     const sh = Math.round(run.runShards);
     if (sh !== L.shards) { $('hud-shard-n').textContent = sh; L.shards = sh; }
 
+    if (run.upgradeCoins !== L.upgradeCoins) {
+      $('hud-upgrade-coin-n').textContent = run.upgradeCoins;
+      L.upgradeCoins = run.upgradeCoins;
+    }
+    const objective = run.storyObjective || '';
+    if (objective !== L.objective) {
+      const node = $('hud-objective');
+      node.textContent = objective;
+      node.classList.toggle('hidden', !objective);
+      L.objective = objective;
+    }
+    $('btn-next-round').classList.toggle('hidden', run.waveState !== 'intermission');
+
     const hpPct = Math.max(0, p.hp / s.maxHp);
     const hpKey = Math.round(hpPct * 100);
     if (hpKey !== L.hp) {
@@ -568,37 +623,98 @@ export class UI {
 
   resetHudCache() { this._last = {}; }
 
-  // ------------------------------------------------------------ level up
+  // ------------------------------------------------------------ between-round services
 
-  showUpgrades(choices, label, onPick) {
-    $('lvl-title').textContent = `${label} — TAKE ONE`;
-    const wrap = $('upgrade-cards');
+  showService(kind, run) {
+    const isSafehouse = kind === 'safehouse';
+    const isRadio = kind === 'radio';
+    const isClinic = kind === 'clinic';
+    $('service-kicker').textContent = isRadio ? 'EMERGENCY BAND' : isSafehouse ? 'THE BAND' : 'FIELD MEDIC';
+    $('service-title').textContent = isRadio ? 'RADIO STATION' : isSafehouse ? 'SAFEHOUSE' : 'CLINIC';
+    $('service-desc').textContent = isRadio
+      ? 'The transmitter crosses the reset. Story equipment must be returned here.'
+      : isSafehouse ? 'Spend run-only coins here. Unspent coins stay with you until this run ends.'
+      : 'Patch up before the next horde. Treatment costs one upgrade coin and is available once per round.';
+    $('service-coins').textContent = run.upgradeCoins;
+    $('service-wallet').classList.toggle('hidden', isRadio);
+
+    const wrap = $('service-cards');
     wrap.innerHTML = '';
-    choices.forEach((c) => {
-      const [category] = UPGRADE_VISUALS[c.def.id] || ['utility'];
-      const card = el('button', `up-card cat-${category}`);
-      card.type = 'button';
-      const cleanDesc = c.desc.replace(/\s*\(\d+\/\d+\)\s*$/, '');
-      const pips = Array.from({ length: c.def.max }, (_, i) =>
-        `<span class="${i < c.level ? 'on' : ''}"></span>`).join('');
-      card.innerHTML =
-        `<div class="up-icon">${upgradeIconSvg(c.def.id)}</div>` +
-        `<div class="up-body">` +
-        `<div class="up-head"><div class="up-name">${c.name}</div><div class="up-cat">${category}</div></div>` +
-        `<div class="up-desc">${cleanDesc}</div>` +
-        `<div class="up-foot"><div class="up-pips" aria-label="Level ${c.level} of ${c.def.max}">${pips}</div>` +
-        (c.level === 1 ? '<div class="up-new">NEW</div>' : '') + `</div>` +
-        `</div>`;
-      card.addEventListener('click', (e) => {
-        e.preventDefault();
-        audio.upgradeSelect();
-        juice.vibrate(12);
-        onPick(c);
+    wrap.classList.toggle('hidden', !isSafehouse);
+    $('clinic-panel').classList.toggle('hidden', !isClinic);
+    const storyStage = run.cfg.storyStage || 0;
+    const canInstallRadio = isSafehouse && run.cfg.isStory && run.storyRadioPart && storyStage === 1;
+    const canSecureKey = isSafehouse && run.cfg.isStory && run.storyButcherKey && storyStage === 2;
+    const canUnlockStation = isRadio && storyStage === 3;
+    const canInstallBattery = isRadio && storyStage === 4 && run.storyBattery;
+    const canDecodeFrequency = isRadio && storyStage === 5 && run.storyFrequencyCode;
+    const canHandInStory = canInstallRadio || canSecureKey || canUnlockStation ||
+      canInstallBattery || canDecodeFrequency;
+    $('radio-install-panel').classList.toggle('hidden', !canHandInStory);
+    if (canHandInStory) {
+      $('story-item-name').textContent = canInstallRadio ? 'RADIO COMPONENT'
+        : canSecureKey ? 'BUTCHER’S KEY' : canUnlockStation ? 'LOCKED TRANSMITTER'
+        : canInstallBattery ? 'TRANSMITTER BATTERY' : 'FREQUENCY CODE';
+      $('btn-install-radio').textContent = canInstallRadio ? 'INSTALL RADIO PART'
+        : canSecureKey ? 'SECURE THE KEY' : canUnlockStation ? 'USE BUTCHER’S KEY'
+        : canInstallBattery ? 'INSTALL BATTERY' : 'DECODE FREQUENCY';
+      $('story-item-note').textContent = canInstallRadio
+        ? 'Connect it to the Safehouse receiver to decode the next transmission.'
+        : canSecureKey ? 'Fit the key into the receiver lock and record its marked frequency.'
+        : canUnlockStation ? 'The key’s frequency mark matches the transmitter cage.'
+        : canInstallBattery ? 'Power the transmitter and listen for the infected carrier.'
+        : 'Feed the biological frequency marks into the transmitter.';
+    }
+
+    if (isSafehouse) {
+      const availableOffers = run.shopOffers
+        .filter((c) => (run.upgradeLevels[c.def.id] || 0) < c.def.max);
+      if (!availableOffers.length) {
+        wrap.innerHTML = '<div class="service-empty">SOLD OUT FOR THIS ROUND</div>';
+      }
+      availableOffers.forEach((c) => {
+        const [category] = UPGRADE_VISUALS[c.def.id] || ['utility'];
+        const cost = run.upgradePrice(c);
+        const card = el('button', `up-card cat-${category}`);
+        card.type = 'button';
+        card.disabled = run.upgradeCoins < cost;
+        const cleanDesc = c.desc.replace(/\s*\(\d+\/\d+\)\s*$/, '');
+        const pips = Array.from({ length: c.def.max }, (_, i) =>
+          `<span class="${i < c.level ? 'on' : ''}"></span>`).join('');
+        card.innerHTML =
+          `<div class="up-icon">${upgradeIconSvg(c.def.id)}</div>` +
+          `<div class="up-body">` +
+          `<div class="up-head"><div class="up-name">${c.name}</div><div class="up-price"><span class="coin-ico">◆</span>${cost}</div></div>` +
+          `<div class="up-desc">${cleanDesc}</div>` +
+          `<div class="up-foot"><div class="up-pips" aria-label="Level ${c.level} of ${c.def.max}">${pips}</div>` +
+          `<div class="up-cat">${category}</div></div></div>`;
+        card.addEventListener('click', (e) => {
+          e.preventDefault();
+          this.game.buyServiceUpgrade(c);
+        });
+        wrap.appendChild(card);
       });
-      wrap.appendChild(card);
-    });
-    this.show('levelup');
-    requestAnimationFrame(() => wrap.querySelector('.up-card')?.focus());
+    } else {
+      const used = run.clinicUsedWave === run.wave;
+      const full = run.player.hp >= run.stats.maxHp;
+      const broke = run.upgradeCoins < 1;
+      $('clinic-health').textContent = `${Math.ceil(run.player.hp)} / ${Math.round(run.stats.maxHp)}`;
+      const btn = $('btn-clinic-heal');
+      btn.disabled = used || full || broke;
+      btn.textContent = used ? 'TREATMENT USED THIS ROUND'
+                      : full ? 'NO TREATMENT NEEDED'
+                      : broke ? 'NEED ◆1 UPGRADE COIN'
+                      : 'TREAT WOUNDS · ◆1';
+      $('clinic-note').textContent = used ? 'The medic needs time before treating you again.'
+                                    : full ? 'You are already at full health.'
+                                    : 'Restores 40% of maximum health.';
+    }
+
+    this.show('service');
+    requestAnimationFrame(() => (canHandInStory
+      ? $('btn-install-radio')
+      : isSafehouse ? wrap.querySelector('.up-card:not([disabled])')
+      : isClinic ? $('btn-clinic-heal') : $('btn-service-close'))?.focus());
   }
 
   // ------------------------------------------------------------ pause
@@ -611,10 +727,10 @@ export class UI {
       row('SCRAP', '▣ ' + Math.round(run.runShards));
     this._quitArmed = false;
     clearTimeout(this._quitTimer);
-    $('btn-quit').textContent = run.cfg.isDaily ? 'ABANDON TONIGHT' : 'END PRACTICE';
-    $('pause-quit-note').textContent = run.cfg.isDaily
-      ? 'Ending now spends tonight’s attempt. Collected scrap is still banked.'
-      : 'Practice scores and scrap are not saved when you end early.';
+    $('btn-quit').textContent = run.cfg.isStory ? 'RETURN TO SAFEHOUSE' : 'END QUICK RUN';
+    $('pause-quit-note').textContent = run.cfg.isStory
+      ? 'Story discoveries and collected scrap remain saved.'
+      : 'Quick Run scores and scrap are not saved when ended early.';
     this.show('pause');
     requestAnimationFrame(() => $('btn-resume')?.focus());
     function row(k, v) { return `<div><span class="k">${k}</span><span class="v">${v}</span></div>`; }
@@ -628,17 +744,16 @@ export class UI {
    */
   showGameOver(res, streakResult, snapshot = {}) {
     const abandoned = !!snapshot.abandoned;
-    $('go-mode').textContent = res.isDaily ? `TONIGHT — ${res.date}` : 'PRACTICE NIGHT';
+    $('go-mode').textContent = res.isStory ? 'CHAPTER ONE · THE FIRST SIGNAL' : 'QUICK RUN';
     $('go-score').textContent = res.score.toLocaleString();
 
     // Label the retry button for what it will actually do (see its click handler).
-    $('btn-again').textContent =
-      (res.isDaily && save.dailyLocked()) ? 'PRACTICE NIGHT' : 'GO OUT AGAIN';
+    $('btn-again').textContent = res.isStory ? 'RETURN TO THE VILLAGE' : 'QUICK RUN AGAIN';
 
     const prevBest = snapshot.priorBest ?? (res.isDaily ? save.data.bestDailyScore : save.data.bestPracticeScore);
     const isBest = !abandoned && res.score > 0 && res.score >= prevBest;
     $('go-title').textContent = abandoned
-      ? (res.isDaily ? 'NIGHT ABANDONED' : 'PRACTICE ENDED')
+      ? (res.isStory ? 'RETURNED TO SAFEHOUSE' : 'QUICK RUN ENDED')
       : isBest ? 'NEW PERSONAL BEST' : 'RUN ENDED';
 
     const delta = $('go-delta');
@@ -672,7 +787,7 @@ export class UI {
     const yesterday = save.dailyScore(dayOffsetKey(-1));
 
     if (!abandoned) cmp.appendChild(cmpRow('Personal best', prevBest || 0, res.score));
-    if (!abandoned && res.isDaily) {
+    if (!abandoned && res.isDaily && !res.isStory) {
       cmp.appendChild(cmpRow('Last night', yesterday ? yesterday.score : null, res.score));
       const bestToday = snapshot.priorToday;
       if (bestToday && bestToday.score !== res.score) {
@@ -684,12 +799,17 @@ export class UI {
     }
 
     $('go-shards').textContent = res.shards.toLocaleString();
-    $('go-shard-label').textContent = res.isDaily ? 'SCRAP BANKED' : 'PRACTICE ONLY — NOT BANKED';
+    $('go-shard-label').textContent = res.isStory ? 'SCRAP BANKED' : 'QUICK RUN — NOT BANKED';
 
     // Streak.
     const sNode = $('go-streak');
     sNode.className = 'streak-result';
-    if (!res.isDaily) {
+    if (res.isStory) {
+      const story = save.data.story;
+      if (story.stage >= 6) sNode.classList.add('gain');
+      sNode.innerHTML = `<span class="big">${story.discoveries.length} / 6 DISCOVERIES</span>` +
+        `<span class="note">Deepest round: ${story.highestWave || res.wave}. Story clues survive every reset.</span>`;
+    } else if (!res.isDaily) {
       sNode.innerHTML = abandoned
         ? `<span class="note">Ended Practice saves no score or scrap. Streak progress comes from Tonight.</span>`
         : `<span class="note">Practice saves your best score only. Scrap and streak progress come from Tonight.</span>`;
@@ -728,7 +848,7 @@ export class UI {
     this.portrait('go-core-face', core)?.resize();
 
     const rivalBlock = $('go-rival');
-    if (res.isDaily && !abandoned) {
+    if (res.isDaily && !res.isStory && !abandoned) {
       rivalBlock.classList.remove('hidden');
       // The rival's line responds to the streak first, then to the run itself.
       let line;
@@ -773,10 +893,10 @@ export class UI {
     const groups = {};
     for (const item of SHOP) (groups[item.cat] ||= []).push(item);
 
-    // Streak-locked lanterns appear alongside purchasable ones so the reward is visible.
+    // Story-locked lanterns appear alongside purchasable ones so the reward is visible.
     for (const id in STREAK_LOCKED) {
       (groups.Lanterns ||= []).push({ id, cat: 'Lanterns', name: TRAILS[id].name,
-                                     cost: null, streakReq: STREAK_LOCKED[id], desc: 'Streak reward' });
+                                     cost: null, streakReq: STREAK_LOCKED[id], desc: 'Story discovery reward' });
     }
     // The standard lantern is always owned; list it so the equip toggle makes sense.
     groups.Lanterns.unshift({ id: 'trail_cyan', cat: 'Lanterns', name: TRAILS.trail_cyan.name, cost: 0, desc: 'Standard issue' });
@@ -980,28 +1100,43 @@ export class UI {
     const d = save.data;
     const score = (value) => value > 0 ? value.toLocaleString() : '—';
     $('records-grid').innerHTML =
-      cell('BEST NIGHT', score(d.bestDailyScore)) +
-      cell('BEST PRACTICE', score(d.bestPracticeScore)) +
+      cell('BEST STORY RUN', score(d.bestDailyScore)) +
+      cell('BEST QUICK RUN', score(d.bestPracticeScore)) +
       cell('LONGEST HELD', d.bestTime > 0 ? formatTime(d.bestTime) : '—') +
-      cell('CURRENT STREAK', d.streak) +
-      cell('BEST STREAK', d.bestStreak) +
+      cell('DEEPEST ROUND', d.story.highestWave || '—') +
+      cell('STORY FOUND', `${d.story.discoveries.length} / 6`) +
       cell('RUNS PLAYED', d.totalRuns.toLocaleString()) +
       cell('TOTAL PUT DOWN', d.totalKills.toLocaleString()) +
       cell('SCRAP EARNED', '▣ ' + d.totalShardsEarned.toLocaleString());
 
     const hist = $('daily-history');
     hist.innerHTML = '';
+    const discoveryCopy = {
+      safehouse: ['THE SAFEHOUSE REMEMBERS', 'The locks were changed from inside before Holt arrived.'],
+      'radio-component': ['A RADIO COMPONENT', 'Military frequency, village address, and Holt’s name—written before the first reset.'],
+      'butcher-key': ['THE BUTCHER’S KEY', 'A brass key wired into its ribs carries the same frequency mark.'],
+      'radio-station': ['THE LOCKED FREQUENCY', 'The Butcher’s key opened the emergency transmitter cage.'],
+      'transmitter-battery': ['TRANSMITTER ONLINE', 'A military battery powered the signal through another reset.'],
+      'frequency-code': ['A LOCATION IN THE STATIC', 'The infected frequency points to something beneath the village.'],
+    };
+    for (const id of d.story.discoveries) {
+      const copy = discoveryCopy[id];
+      if (!copy) continue;
+      const note = el('div', 'hist-row');
+      note.innerHTML = `<div><div class="hist-date">${copy[0]}</div>` +
+        `<div class="hist-mut">DISCOVERY</div><div class="shop-desc">${copy[1]}</div></div>`;
+      hist.appendChild(note);
+    }
     const keys = Object.keys(d.dailyScores).sort().reverse().slice(0, 30);
-    if (!keys.length) {
-      hist.appendChild(el('div', 'empty', 'No nights recorded yet.'));
+    if (!keys.length && !d.story.discoveries.length) {
+      hist.appendChild(el('div', 'empty', 'No discoveries or runs recorded yet.'));
       return;
     }
     for (const k of keys) {
       const r = d.dailyScores[k];
-      const mut = mutatorFor(k);
       const row = el('div', 'hist-row');
       row.innerHTML =
-        `<div><div class="hist-date">${k}</div><div class="hist-mut">${mut.name}</div></div>` +
+        `<div><div class="hist-date">${k === 'chapter-one' ? 'THE FIRST SIGNAL' : k}</div><div class="hist-mut">STORY RUN</div></div>` +
         `<div style="text-align:right"><div class="hist-score">${r.score.toLocaleString()}</div>` +
         `<div class="hist-date">${formatTime(r.time)} · ${r.kills} kills</div></div>`;
       hist.appendChild(row);

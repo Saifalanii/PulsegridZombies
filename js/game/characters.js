@@ -55,8 +55,7 @@ export const coreFor = (weaponId) => CORES[weaponId] || CORES.weapon_machete;
 /**
  * The voice on the emergency band. Never seen, never helps, keeps the count.
  *
- * It announces the night's conditions and acknowledges streak milestones. Somebody has
- * to be holding the real route open, or Tonight has no place in the fiction.
+ * It knows the reset, marks useful supplies and keeps steering Holt toward locked doors.
  */
 export const RIVAL = {
   name: 'THE BAND',
@@ -74,13 +73,13 @@ export const RIVAL = {
 
 /**
  * One short framing sentence, shown on first launch and from the About screen.
- * The daily loop needs a "why" and this is it: the village resets, you don't.
+ * The story loop needs a "why" and this is it: the village resets, Holt doesn't.
  */
 export const STAKES = {
   title: 'THE LOOP',
   line: 'Whenever Holt falls, the village rolls back to dusk. The dead return exactly as they were.',
-  line2: 'The Band opens one real route each night. Holt keeps his memory, and anything he carries back through that signal.',
-  signoff: 'Practice teaches the streets. Tonight is the route that counts.',
+  line2: 'The Band is still transmitting through every reset. Holt keeps his memory, and anything carried back into the Safehouse.',
+  signoff: 'Find the source of the signal. Break the loop.',
 };
 
 // ---------------------------------------------------------------- lantern flavour
@@ -90,9 +89,9 @@ export const STAKES = {
 
 export const TRAIL_BLURBS = {
   trail_cyan:  'Standard issue. Honest light.',
-  trail_ember: 'Three nights running. Something noticed.',
-  trail_prism: 'A week of stubbornness, refracted.',
-  trail_void:  'Thirty nights. Burns cold and does not gutter.',
+  trail_ember: 'The Safehouse remembered this light.',
+  trail_prism: 'Recovered beside the radio component.',
+  trail_void:  'Cold light from the Butcher’s key.',
   trail_toxic: 'Sickly green light. Cosmetic; it attracts nothing.',
   trail_rose:  'Visible for a mile. Cosmetic, deeply unsubtle.',
 };

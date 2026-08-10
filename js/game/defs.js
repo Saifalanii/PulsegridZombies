@@ -229,8 +229,10 @@ export const WEAPONS = {
     // own fps (12) times its frame count (8) is 0.667s, which is exactly 1/rate below —
     // the draw finishes right as the next shot is due, with no stretch needed.
     clip: 'thrust',
-    dmg: 34, rate: 1.5, speed: 760, count: 1, spread: 0.02,
-    size: 5, pierce: 1, range: 640, reach: 0, arc: 0, knock: 90,
+    // Range remains its identity, but its safety is balanced by lower damage and no
+    // free pierce. Broadheads now has to earn that line-clearing power.
+    dmg: 28, rate: 1.35, speed: 720, count: 1, spread: 0.02,
+    size: 5, pierce: 0, range: 560, reach: 0, arc: 0, knock: 75,
   },
   weapon_axe: {
     name: 'Fire Axe', desc: 'Slow, enormous, and clears a whole doorway at once.',
@@ -268,8 +270,10 @@ export const UPGRADES = [
   { id: 'multi',   name: (melee) => melee ? 'Wide Swing' : 'Split Shot', max: 3, weight: 55, icon: 5,
     desc: (l, melee) => melee
       ? `+18% swing arc, -7% damage  (${l}/3)`
-      : `+1 arrow, -7% damage each  (${l}/3)`,
-    apply: (s) => { s.count += 1; s.spread = Math.max(s.spread, 0.16); s.dmgMul *= 0.93; } },
+      : `+1 arrow, -22% damage each  (${l}/3)`,
+    apply: (s, _p, _l, melee) => {
+      s.count += 1; s.spread = Math.max(s.spread, 0.16); s.dmgMul *= melee ? 0.93 : 0.78;
+    } },
 
   { id: 'pierce',  name: (melee) => melee ? 'Follow-Through' : 'Broadheads', max: 3, weight: 60, icon: 6,
     desc: (l, melee) => melee
@@ -396,11 +400,11 @@ export const SHOP = [
   { id: 'trail_rose',  cat: 'Lanterns', name: 'Signal Flare', cost: 400, desc: 'Hot pink, deeply unsubtle' },
 ];
 
-/** Streak-only unlocks, shown greyed in the stockpile so the reward is visible early. */
+/** Story unlocks, shown greyed in the stockpile so each discovery has a visible reward. */
 export const STREAK_LOCKED = {
-  trail_ember: '3-night streak',
-  trail_prism: '7-night streak',
-  trail_void: '30-night streak',
+  trail_ember: 'Find the Safehouse',
+  trail_prism: 'Recover the radio part',
+  trail_void: 'Take the Butcher’s key',
 };
 
 // ------------------------------------------------------- derived meta stats

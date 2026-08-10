@@ -16,12 +16,23 @@ import { UI } from './ui/screens.js';
 import { todayKey } from './core/rng.js';
 import { voice } from './game/voice.js';
 import { coreFor, RIVAL } from './game/characters.js';
+import { ENEMIES } from './game/defs.js';
 
 const STEP = 1 / 120;
 const MAX_FRAME = 0.25;   // never simulate more than a quarter second after a tab stall
 
-const S_MENU = 'menu', S_PLAYING = 'playing', S_LEVELUP = 'levelup',
+const S_MENU = 'menu', S_PLAYING = 'playing', S_SERVICE = 'service',
       S_PAUSED = 'paused', S_OVER = 'over';
+
+const STORY_OBJECTIVES = [
+  'SURVIVE ROUND 1 · FIND THE SAFEHOUSE',
+  'REACH ROUND 3 · RECOVER THE RADIO PART',
+  'REACH ROUND 5 · TAKE THE BUTCHER’S KEY',
+  'FIND THE RADIO STATION · USE THE BUTCHER’S KEY',
+  'REACH ROUND 7 · RECOVER A TRANSMITTER BATTERY',
+  'REACH ROUND 8 · TAKE THE SPITTER’S FREQUENCY CODE',
+  'CHAPTER TWO COMPLETE · THE BAND HAS A LOCATION',
+];
 
 class Game {
   constructor() {
@@ -39,7 +50,7 @@ class Game {
 
     this.run = null;
     this.state = S_MENU;
-    this.lastMode = 'daily';
+    this.lastMode = 'story';
     this.pendingConfig = null;
     this.acc = 0;
     this.lastT = 0;
@@ -148,11 +159,12 @@ class Game {
       if (e.code === 'Escape') {
         if (this.state === S_PLAYING) this.pause();
         else if (this.state === S_PAUSED) this.resume();
+        else if (this.state === S_SERVICE) this.closeService();
       }
       if (e.code === 'KeyP' && this.state === S_PLAYING) this.pause();
       // Number keys pick upgrades — makes desktop testing far faster.
-      if (this.state === S_LEVELUP && /^Digit[123]$/.test(e.code)) {
-        const cards = document.querySelectorAll('#upgrade-cards .up-card');
+      if (this.state === S_SERVICE && /^Digit[123]$/.test(e.code)) {
+        const cards = document.querySelectorAll('#service-cards .up-card');
         cards[+e.code.slice(5) - 1]?.click();
       }
     });
@@ -210,14 +222,7 @@ class Game {
   // ------------------------------------------------------------ flow
 
   openBrief(mode) {
-    // Guard here as well as in the UI: the menu button is disabled once the daily is
-    // spent, but "RUN AGAIN" on the results screen and the manifest's ?mode=daily
-    // shortcut both route through here too, and neither consults the button's state.
-    if (mode === 'daily' && save.dailyLocked()) {
-      this.ui.toast('Tonight’s run is spent. Practice is unlimited.');
-      this.ui.show('menu');
-      return;
-    }
+    if (mode === 'daily') mode = 'story'; // old installed-app shortcut compatibility
     this.lastMode = mode;
     this.pendingConfig = makeRunConfig(mode, todayKey());
     this.ui.showBrief(this.pendingConfig);
@@ -234,12 +239,34 @@ class Game {
     const cfg = this.pendingConfig || makeRunConfig(this.lastMode, todayKey());
     this.pendingConfig = null;
     cfg.mapData = this.mapData;
-
-    // Spend the daily attempt now, at the point of no return. Doing this at run *end*
-    // would mean a force-quit mid-run costs nothing and the seed can be re-rolled.
-    if (cfg.isDaily) save.markDailyAttempted(cfg.dateKey);
+    cfg.storyStage = cfg.isStory ? save.data.story.stage : 0;
 
     this.run = new Run(cfg);
+    this.run.storyObjective = cfg.isStory ? STORY_OBJECTIVES[save.data.story.stage] : '';
+    if (cfg.isStory) {
+      let checkpoint = save.data.story.checkpoint;
+      // One-time migration for discoveries earned before checkpoints existed. There is
+      // no old build snapshot to recover, so provide a conservative prepared loadout at
+      // the matching hand-in instead of sending an advanced story back to Level 1.
+      if (!checkpoint && save.data.story.stage > 0) {
+        const stage = save.data.story.stage;
+        checkpoint = {
+          stage,
+          wave: stage === 1 ? 1 : stage === 2 ? 3 : stage <= 4 ? 5 : stage === 5 ? 7 : 8,
+          level: stage === 1 ? 2 : stage === 2 ? 4 : stage <= 4 ? 6 : stage === 5 ? 8 : 9,
+          xp: 0,
+          upgradeLevels: stage === 1 ? {} : stage === 2
+            ? { power: 1, rapid: 1 }
+            : stage <= 4 ? { power: 2, rapid: 1, vitality: 1 }
+            : { power: 3, rapid: 2, vitality: 1, pierce: 1 },
+          upgradeCoins: stage,
+          hpRatio: 1,
+          runShards: 0,
+        };
+        save.saveStoryCheckpoint(checkpoint);
+      }
+      this.run.resumeStoryCheckpoint(checkpoint);
+    }
     this.run.particles.setBudget(this.renderer.quality === 'high' ? 1 : 0.55);
 
     const core = coreFor(save.data.equippedWeapon);
@@ -247,18 +274,54 @@ class Game {
     const say = (kind) => this.ui.say(core.name, voice.player(kind), kind);
 
     this.run.onLevelUp = () => say('levelUp');
+    this.run.onUpgradeCoin = (amount, source) => {
+      this.ui.resetHudCache();
+      this.ui.toast(`${source} · +${amount} UPGRADE COIN${amount === 1 ? '' : 'S'}`, 2200);
+    };
+    this.run.onServiceEnter = (kind) => {
+      if (cfg.isStory && kind === 'safehouse' && save.data.story.stage === 0) {
+        this._advanceStory('safehouse', 1, 'THE SAFEHOUSE REMEMBERS',
+          'The locks were already changed from the inside. Find a supply drop. The Band may be sending more than ammunition.');
+      }
+      this.openService(kind);
+    };
+    this.run.onUpgradeBought = () => {
+      this.ui.resetHudCache();
+      if (cfg.isStory) this._saveStoryCheckpoint();
+    };
+    this.run.onClinicUsed = () => {
+      this.ui.resetHudCache();
+      if (cfg.isStory) this._saveStoryCheckpoint();
+    };
     this.run.onGameOver = () => this._endRun();
     this.run.onTierChange = (tier) => { this.ui.banner(tier.name); say('tierShift'); };
     this.run.onWaveClear = (wave, seconds) => {
+      if (cfg.isStory) save.recordStoryWave(wave);
       audio.waveClear();
-      this.ui.banner(`ROUND ${wave} CLEAR — ${seconds}s`);
+      this.ui.banner(`ROUND ${wave} CLEAR — SERVICES OPEN`);
     };
     this.run.onWaveStart = (wave) => {
       this.ui.banner(`ROUND ${wave}`);
       audio.waveStart();
     };
     this.run.onEliteSpawn = () => this.ui.banner('SOMETHING BIG');
-    this.run.onEliteKilled = () => say('eliteKill');
+    this.run.onEliteKilled = () => {
+      say('eliteKill');
+      if (cfg.isStory && this.run.wave >= 5 && save.data.story.stage === 2) {
+        this.run.storyButcherKey = true;
+        this.run.storyObjective = 'RETURN TO THE SAFEHOUSE · SECURE THE BUTCHER’S KEY';
+        this.ui.resetHudCache();
+        this.ui.say('HOLT', 'A key was wired into it. This goes back to the Safehouse.', 'milestone');
+      }
+    };
+    this.run.onEnemyKilled = (def) => {
+      if (cfg.isStory && save.data.story.stage === 5 && this.run.wave >= 8 && def === ENEMIES.spitter) {
+        this.run.storyFrequencyCode = true;
+        this.run.storyObjective = 'RETURN TO THE RADIO STATION · DECODE THE FREQUENCY';
+        this.ui.resetHudCache();
+        this.ui.say('HOLT', 'Frequency marks under its jaw. The Radio Station can read them.', 'milestone');
+      }
+    };
     this.run.onMinibossSpawn = (def) => {
       // The rival announces minibosses — reuses the existing voice channel, and gives
       // the event a named author instead of an anonymous banner.
@@ -275,7 +338,21 @@ class Game {
     };
     this.run.onRevive = () => { this.ui.banner('ADRENALINE SHOT'); say('nearDeath'); };
     this.run.onDropLanded = () => { audio.supplyDrop(); this.ui.banner('SUPPLY DROP'); };
-    this.run.onDropTaken = () => this.ui.banner('SUPPLIES SECURED');
+    this.run.onDropTaken = () => {
+      this.ui.banner('SUPPLIES SECURED');
+      if (cfg.isStory && save.data.story.stage === 1) {
+        this.run.storyRadioPart = true;
+        this.run.storyObjective = 'RETURN TO THE SAFEHOUSE · INSTALL THE RADIO PART';
+        this.ui.resetHudCache();
+        this.ui.say('HOLT', 'A radio component. I need to get this back to the Safehouse.', 'milestone');
+      } else if (cfg.isStory && save.data.story.stage === 4) {
+        this.run.storyBattery = true;
+        this.run.storyObjective = 'RETURN TO THE RADIO STATION · INSTALL THE BATTERY';
+        this.ui.resetHudCache();
+        this.ui.say('HOLT', 'Transmitter battery. Heavy, but intact. Back to the station.', 'milestone');
+      }
+    };
+    this.run.onStoryBlocked = (message) => this.ui.toast(message, 3000);
     this.run.onDropLost = () => { audio.supplyLost(); this.ui.banner('SUPPLIES LOST'); };
     this.run.onHurt = () => {
       // Below a quarter health the survivor stops reacting to the individual hit and
@@ -298,47 +375,101 @@ class Game {
     // village events. The continuous wind/drone graph stays off on phones.
     audio.unlock();
     audio.waveStart();
-    this.ui.banner(cfg.isDaily ? (cfg.mutator?.name || 'TONIGHT') : 'PRACTICE NIGHT');
+    this.ui.banner(cfg.isStory
+      ? save.data.story.stage >= 3 ? 'CHAPTER TWO · THE LOCKED FREQUENCY' : 'CHAPTER ONE · THE FIRST SIGNAL'
+      : 'QUICK RUN');
   }
 
-  _openLevelUp() {
-    const run = this.run;
-    if (run.pendingLevelUps <= 0) return;
-    const choices = run.rollUpgradeChoices(3);
-    if (!choices.length) {
-      run.pendingLevelUps = 0;
-      run.pendingPickSources.length = 0;
-      return;
-    }
-    // The menu may open while the player's thumb is still moving. Mobile standalone
-    // PWAs do not always deliver that pointer's eventual release back to the canvas
-    // once the overlay has taken over, so explicitly end the gesture at the boundary.
-    this.input.reset();
-    const pickLabel = run.pendingPickSources[0]?.label || `LEVEL ${run.player.level}`;
-    let picked = false;
-    this.ui.showUpgrades(choices, pickLabel, (choice) => {
-      // A fast double-tap can dispatch two click events before the overlay is removed.
-      // One card must always consume exactly one queued reward.
-      if (picked) return;
-      picked = true;
-      run.applyUpgrade(choice);
-      run.pendingLevelUps--;
-      run.pendingPickSources.shift();
-      this.ui.hideAll();
-      if (run.pendingLevelUps > 0) {
-        // FAMINE hands out two per level; chain the menus.
-        setTimeout(() => this._openLevelUp(), 60);
-      } else {
-        this.state = S_PLAYING;
-        this.ui.setHudVisible(true);
-        this.acc = 0;
-        this.lastT = performance.now();
-      }
+  _advanceStory(id, stage, banner, line) {
+    if (!save.discoverStory(id, stage)) return;
+    this.run.storyObjective = STORY_OBJECTIVES[stage];
+    this.run.cfg.storyStage = stage;
+    if (stage === 1 || stage === 4) this.run.dropT = Math.min(this.run.dropT, 8);
+    this._saveStoryCheckpoint();
+    this.ui.resetHudCache();
+    audio.milestone();
+    this.ui.banner(banner);
+    setTimeout(() => this.ui.say('HOLT', line, 'milestone'), 650);
+  }
+
+  _saveStoryCheckpoint() {
+    if (!this.run?.cfg?.isStory || (this.run.cfg.storyStage || 0) < 1) return;
+    save.saveStoryCheckpoint({
+      stage: this.run.cfg.storyStage,
+      wave: this.run.wave,
+      level: this.run.player.level,
+      xp: this.run.player.xp,
+      upgradeLevels: { ...this.run.upgradeLevels },
+      upgradeCoins: this.run.upgradeCoins,
+      hpRatio: this.run.player.hp / this.run.stats.maxHp,
+      runShards: this.run.runShards,
     });
-    // Only pause the simulation after the cards exist. If rendering the menu ever fails,
-    // gameplay stays live instead of being stranded in an invisible level-up state.
-    this.state = S_LEVELUP;
+  }
+
+  openService(kind) {
+    if (this.state !== S_PLAYING || this.run?.waveState !== 'intermission') return;
+    this.input.reset();
+    this.serviceKind = kind;
+    this.ui.showService(kind, this.run);
+    this.state = S_SERVICE;
     this.ui.setHudVisible(false);
+  }
+
+  closeService() {
+    if (this.state !== S_SERVICE) return;
+    this.input.reset();
+    this.serviceKind = null;
+    this.ui.hideAll();
+    this.ui.setHudVisible(true);
+    this.state = S_PLAYING;
+    this.acc = 0;
+    this.lastT = performance.now();
+  }
+
+  buyServiceUpgrade(choice) {
+    if (this.state !== S_SERVICE || !this.run.buyShopUpgrade(choice)) return;
+    audio.upgradeSelect();
+    juice.vibrate(12);
+    this.ui.showService('safehouse', this.run);
+  }
+
+  installRadioPart() {
+    if (this.state !== S_SERVICE || !this.run?.cfg?.isStory) return;
+    const stage = this.run.cfg.storyStage || 0;
+    if (stage === 1 && this.run.storyRadioPart) {
+      this.run.storyRadioPart = false;
+      this._advanceStory('radio-component', 2, 'THE FIRST SIGNAL',
+        'Military frequency. Village address. Holt’s name was written before the first reset. The transmission names the Butcher—and the key inside it.');
+    } else if (stage === 2 && this.run.storyButcherKey) {
+      this.run.storyButcherKey = false;
+      this._advanceStory('butcher-key', 3, 'THE KEY REMEMBERS',
+        'The frequency etched into the key matches the receiver. A locked building answered from across the village. Chapter One is complete.');
+    } else if (stage === 3 && this.serviceKind === 'radio') {
+      this._advanceStory('radio-station', 4, 'THE LOCKED FREQUENCY',
+        'The Butcher’s key opened the transmitter cage. It needs a military battery. The next convoy signal begins at Round 7.');
+    } else if (stage === 4 && this.serviceKind === 'radio' && this.run.storyBattery) {
+      this.run.storyBattery = false;
+      this._advanceStory('transmitter-battery', 5, 'TRANSMITTER ONLINE',
+        'The signal is speaking through infected throats. A marked Spitter enters in Round 8. Bring back its frequency code.');
+    } else if (stage === 5 && this.serviceKind === 'radio' && this.run.storyFrequencyCode) {
+      this.run.storyFrequencyCode = false;
+      this._advanceStory('frequency-code', 6, 'A LOCATION IN THE STATIC',
+        'The Band is not outside the village. The transmission is coming from beneath it. Chapter Two is complete.');
+    } else return;
+    this.run.waveBreakT = Math.max(this.run.waveBreakT, 12);
+    juice.vibrate([0, 20, 40, 30]);
+    this.ui.showService('safehouse', this.run);
+  }
+
+  useClinic() {
+    if (this.state !== S_SERVICE || !this.run.useClinic()) return;
+    this.ui.showService('clinic', this.run);
+  }
+
+  startNextRound() {
+    if (this.state !== S_PLAYING || this.run?.waveState !== 'intermission') return;
+    if (!this.run.startNextWave()) return;
+    this.ui.resetHudCache();
   }
 
   pause() {
@@ -383,12 +514,8 @@ class Game {
     const priorBest = res.isDaily ? save.data.bestDailyScore : save.data.bestPracticeScore;
     const priorToday = res.isDaily ? save.dailyScore(res.date) : null;
 
-    if (res.isDaily && !abandoned) {
-      streakResult = save.commitDaily(res.date);
-      if (streakResult.milestone) {
-        setTimeout(() => audio.milestone(), 700);
-      }
-    }
+    // Story discoveries save at the moment they happen. Attempts are unlimited and no
+    // calendar streak is committed here.
     save.recordRun({
       isDaily: res.isDaily,
       abandoned,
@@ -425,7 +552,7 @@ class Game {
     const simDt = juice.update(dt);
 
     const active = this.state === S_PLAYING ? this.run
-                 : (this.state === S_PAUSED || this.state === S_LEVELUP || this.state === S_OVER) ? this.run
+                 : (this.state === S_PAUSED || this.state === S_SERVICE || this.state === S_OVER) ? this.run
                  : this.ambient;
 
     if (this.state === S_PLAYING && this.run) {
@@ -444,14 +571,6 @@ class Game {
 
       this.ui.updateHud(this.run);
 
-      // Upgrade picks are intentionally deferred until the safe round break. Derive the
-      // transition from Run's actual queue rather than a one-shot callback flag: callbacks
-      // can arrive during a fixed update and a missed flag used to leave Practice frozen
-      // at the end of a round with no reliable way to resume.
-      if (this.run.pendingLevelUps > 0 && !this.run.over &&
-          this.run.waveState === 'intermission') {
-        this._openLevelUp();
-      }
     } else if (this.state === S_OVER && this.run) {
       this.run.update(simDt, this.input);
     } else if (active === this.ambient) {
@@ -479,7 +598,7 @@ class Game {
     if (!audio.ready) return;
     const s = this.state;
     const want = s === S_MENU ? 'menu'
-               : (s === S_PLAYING || s === S_LEVELUP || s === S_PAUSED) ? 'run'
+               : (s === S_PLAYING || s === S_SERVICE || s === S_PAUSED) ? 'run'
                : null;
     // Decode the run track while the menu is up, not when the player taps GO OUT.
     audio.warmTracks();
@@ -525,7 +644,7 @@ class Game {
     // end() blurs the whole scene and adds it back, which is what was washing the
     // eyes out: the dark sockets have no defense against a full-frame glow blur
     // added on top of them. Outside the bloom bracket, they stay crisp.
-    active.drawFaceOverlay?.(r);
+    active.drawFaceOverlay?.(r, juice);
 
     // Speech bubble tracks the player every frame it's visible — see positionVoiceNear
     // for why this can't just be set once in ui.say() and left alone.
@@ -596,8 +715,8 @@ function boot() {
 
   // Installed-app shortcuts land on the requested briefing instead of the generic menu.
   const shortcutMode = new URLSearchParams(location.search).get('mode');
-  if (shortcutMode === 'daily' || shortcutMode === 'practice') {
-    requestAnimationFrame(() => window.game.openBrief(shortcutMode));
+  if (shortcutMode === 'daily' || shortcutMode === 'story' || shortcutMode === 'practice') {
+    requestAnimationFrame(() => window.game.openBrief(shortcutMode === 'daily' ? 'story' : shortcutMode));
   }
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {

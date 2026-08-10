@@ -60,8 +60,8 @@ const PLAYER = {
     'The village forgets. I did not.',
     'Put this one in the log.',
     'Still here. Still counting.',
-    'Another night held.',
-    'The streak continues.',
+    'Another piece survived the reset.',
+    'The signal left a trail.',
   ],
 
   eliteKill: [
@@ -110,12 +110,12 @@ const CORE_FLAVOUR = {
 const RIVAL = {
   // Shown on the nightly brief.
   dailyStart: [
-    "Tonight's conditions are particularly unkind.",
-    'The same night is waiting for everyone.',
-    'The streets reset. The danger does not.',
-    'One attempt. Make the route count.',
+    'You came back remembering. Good.',
+    'The streets reset. The locked doors do not.',
+    'Find what the village failed to erase.',
     'The emergency band is still open.',
-    'I will keep the count.',
+    'Your Safehouse kept what you carried in.',
+    'Follow the marked supplies. They were meant for you.',
   ],
 
   streakBroken: [
@@ -148,8 +148,8 @@ const RIVAL = {
 
   idle: [
     'The village rolls back when you fall. It always does.',
-    'One true route each night. That is the arrangement.',
-    'I keep the log. You keep moving.',
+    'The signal crosses the reset. So do you.',
+    'The doors remember their keys.',
   ],
 
   // Announcing the Butcher. The band is enjoying this.

@@ -31,6 +31,16 @@ const DEFAULTS = {
   totalRuns: 0,
   totalKills: 0,
 
+  // Chapter One is personal progression, not a calendar streak. Stage advances only
+  // when its concrete objective is completed, while highestWave records partial runs.
+  story: {
+    chapter: 1,
+    stage: 0,
+    highestWave: 0,
+    discoveries: [],
+    checkpoint: null,
+  },
+
   // Meta unlocks
   unlocked: ['weapon_machete', 'trail_cyan'],
   equippedWeapon: 'weapon_machete',
@@ -161,6 +171,32 @@ class SaveStore {
       this.data.unlocked.push(id);
       this.save();
     }
+  }
+
+  recordStoryWave(wave) {
+    if (wave <= this.data.story.highestWave) return false;
+    this.data.story.highestWave = wave;
+    this.saveNow();
+    return true;
+  }
+
+  discoverStory(id, stage) {
+    const story = this.data.story;
+    const fresh = !story.discoveries.includes(id);
+    if (fresh) story.discoveries.push(id);
+    story.stage = Math.max(story.stage, stage);
+    const reward = {
+      1: 'trail_ember', 2: 'trail_prism', 3: 'trail_void',
+      4: 'magnet_start', 5: 'dash_charge', 6: 'revive',
+    }[stage];
+    if (reward && !this.has(reward)) this.data.unlocked.push(reward);
+    this.saveNow();
+    return fresh;
+  }
+
+  saveStoryCheckpoint(checkpoint) {
+    this.data.story.checkpoint = structuredClone(checkpoint);
+    this.saveNow();
   }
 
   // ------------------------------------------------------------ daily lock

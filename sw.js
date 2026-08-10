@@ -35,7 +35,8 @@
 // v40-v48: development-only weapon art experiments, removed from the playable build.
 // v49: recovery sweep — coherent loadouts, pack waves, practice economy and mobile UI.
 // v50: deterministic auto-aim, reliable round-reward resume and stable mobile tile scale.
-const CACHE = 'nightfall-v50';
+// v51: physical Safehouse and Clinic, run-only upgrade coins and skippable service breaks.
+const CACHE = 'nightfall-v57';
 
 // On localhost the cache-first strategy below happily serves the module you edited
 // thirty seconds ago, and you debug a file the page isn't running. Development gets

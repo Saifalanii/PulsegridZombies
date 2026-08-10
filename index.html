@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#04070d">
-<meta name="description" content="Nightfall Village — top-down zombie survival in a village that rolls back to dusk. One fixed route each night.">
+<meta name="description" content="Nightfall Village — survive the repeating night and uncover the signal controlling the village.">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -32,17 +32,21 @@
       <div id="hud-tier" class="tier">DUSK</div>
     </div>
     <div class="hud-right">
+      <div id="hud-upgrade-coins" class="upgrade-coins" aria-label="Upgrade coins"><span class="coin-ico">◆</span><span id="hud-upgrade-coin-n">0</span></div>
       <div id="hud-shards" class="shards"><span class="shard-ico">▣</span><span id="hud-shard-n">0</span></div>
       <button id="btn-pause" class="icon-btn" aria-label="Pause">❙❙</button>
     </div>
   </div>
 
   <div id="hud-banner" class="banner"></div>
+  <div id="hud-objective" class="objective-chip hidden" aria-live="polite"></div>
 
   <div id="voice" class="voice" aria-live="polite">
     <span class="voice-who" id="voice-who">HOLT</span>
     <span class="voice-line" id="voice-line"></span>
   </div>
+
+  <button id="btn-next-round" class="next-round hidden">START NEXT ROUND</button>
 
   <div id="hud-action" class="action-status">SPRINT READY</div>
 
@@ -57,12 +61,12 @@
   <div class="scroll">
     <header class="title-block">
       <h1 class="logo"><span>NIGHTFALL</span><span class="logo-alt">VILLAGE</span></h1>
-      <p class="tagline">When Holt falls, the village rolls back to dusk. The Band opens one real route each night; what he carries out survives.</p>
+      <p class="tagline">When Holt falls, the village rolls back to dusk. The streets forget. The Safehouse—and Holt—do not.</p>
     </header>
 
     <section class="card daily-card" id="daily-card">
       <div class="card-head">
-        <span class="eyebrow">TONIGHT</span>
+        <span class="eyebrow">CHAPTER ONE</span>
         <span class="date" id="daily-date"></span>
       </div>
       <div class="mutator">
@@ -70,24 +74,24 @@
         <div class="mutator-desc" id="daily-mutator-desc">—</div>
       </div>
       <div class="daily-meta">
-        <div><span class="k" id="daily-best-label">YOUR BEST TONIGHT</span><span class="v" id="daily-best">—</span></div>
-        <div><span class="k">RESETS IN</span><span class="v mono" id="daily-countdown">--:--:--</span></div>
+        <div><span class="k" id="daily-best-label">DEEPEST ROUND</span><span class="v" id="daily-best">—</span></div>
+        <div><span class="k">DISCOVERIES</span><span class="v mono" id="daily-countdown">0 / 6</span></div>
       </div>
-      <button class="btn primary big" id="btn-daily">GO OUT TONIGHT</button>
+      <button class="btn primary big" id="btn-daily">CONTINUE THE NIGHT</button>
       <div class="daily-note" id="daily-note"></div>
     </section>
 
     <section class="streak-row">
       <div class="streak-flame" id="streak-flame">▲</div>
       <div class="streak-info">
-        <div class="streak-n"><span id="streak-count">0</span> <span class="streak-unit">NIGHT STREAK</span></div>
-        <div class="streak-sub" id="streak-sub">Go out tonight to begin.</div>
+        <div class="streak-n"><span id="streak-count">0</span> <span class="streak-unit">STORY BEATS FOUND</span></div>
+        <div class="streak-sub" id="streak-sub">Survive Round 1 and find the Safehouse.</div>
       </div>
     </section>
     <div class="milestones" id="milestones"></div>
 
     <div class="btn-row">
-      <button class="btn" id="btn-practice">PRACTICE NIGHT</button>
+      <button class="btn" id="btn-practice">QUICK RUN</button>
       <button class="btn" id="btn-shop">STOCKPILE <span class="shard-ico">▣</span><span id="menu-shards">0</span></button>
     </div>
     <div class="btn-row">
@@ -97,7 +101,7 @@
     <button class="btn ghost" id="btn-about">THE STORY</button>
 
     <button class="btn ghost install hidden" id="btn-install">INSTALL APP</button>
-    <p class="footnote">Practice saves a best score, but never banks scrap or extends your streak.</p>
+    <p class="footnote">Continue the Night advances Holt’s story and banks scrap. Quick Run is an unlimited sandbox.</p>
     <!-- Attribution is a licence condition of the LPC art, not a courtesy. Do not remove.
          The tileset line deliberately does not claim permission we cannot evidence. -->
     <p class="footnote credits-line">Character art by Liberated Pixel Cup contributors, via the Universal LPC Spritesheet Generator (CC-BY-SA 3.0 / GPL 3.0). Village tileset: attribution pending — see CREDITS.md.</p>
@@ -107,7 +111,7 @@
 <!-- ============================ Pre-run brief ============================ -->
 <div id="brief" class="layer screen hidden">
   <div class="brief-inner">
-    <div class="eyebrow" id="brief-mode">TONIGHT</div>
+    <div class="eyebrow" id="brief-mode">CHAPTER ONE</div>
     <div class="brief-date" id="brief-date"></div>
     <div class="brief-mutator">
       <div class="mutator-name big" id="brief-mutator">—</div>
@@ -132,11 +136,25 @@
   </div>
 </div>
 
-<!-- ============================ Level up ============================ -->
-<div id="levelup" class="layer screen overlay hidden" role="dialog" aria-modal="true" aria-label="Choose an upgrade">
-  <div class="levelup-inner">
-    <div class="eyebrow pulse-text" id="lvl-title">ROUND REWARD — TAKE ONE</div>
-    <div class="cards" id="upgrade-cards"></div>
+<!-- ============================ Between-round services ============================ -->
+<div id="service" class="layer screen overlay hidden" role="dialog" aria-modal="true" aria-label="Village service">
+  <div class="service-inner">
+    <div class="eyebrow" id="service-kicker">THE BAND</div>
+    <h2 id="service-title">SAFEHOUSE</h2>
+    <p class="service-desc" id="service-desc"></p>
+    <div class="service-wallet" id="service-wallet"><span>UPGRADE COINS</span><strong><span class="coin-ico">◆</span> <span id="service-coins">0</span></strong></div>
+    <div class="cards" id="service-cards"></div>
+    <div id="radio-install-panel" class="clinic-panel hidden">
+      <div class="clinic-health"><span>STORY ITEM</span><strong id="story-item-name">RADIO COMPONENT</strong></div>
+      <button class="btn primary" id="btn-install-radio">INSTALL RADIO PART</button>
+      <p class="hint" id="story-item-note">Connect it to the Safehouse receiver to decode the next transmission.</p>
+    </div>
+    <div id="clinic-panel" class="clinic-panel hidden">
+      <div class="clinic-health"><span>YOUR HEALTH</span><strong id="clinic-health">100 / 100</strong></div>
+      <button class="btn primary" id="btn-clinic-heal">TREAT WOUNDS · ◆1</button>
+      <p id="clinic-note" class="hint"></p>
+    </div>
+    <button class="btn ghost" id="btn-service-close">BACK TO THE STREET</button>
   </div>
 </div>
 
@@ -147,7 +165,7 @@
     <div class="pause-stats" id="pause-stats"></div>
     <button class="btn primary" id="btn-resume">RESUME</button>
     <button class="btn ghost" id="btn-pause-settings">SETTINGS</button>
-    <button class="btn danger ghost" id="btn-quit">END PRACTICE</button>
+    <button class="btn danger ghost" id="btn-quit">RETURN TO SAFEHOUSE</button>
     <p class="pause-quit-note" id="pause-quit-note"></p>
   </div>
 </div>
@@ -156,7 +174,7 @@
 <div id="gameover" class="layer screen hidden">
   <div class="scroll">
     <div class="go-head">
-      <div class="eyebrow" id="go-mode">TONIGHT</div>
+      <div class="eyebrow" id="go-mode">CHAPTER ONE</div>
       <h2 id="go-title">THE NIGHT ENDED</h2>
     </div>
 
@@ -195,7 +213,7 @@
     </div>
 
     <div class="btn-row">
-      <button class="btn primary" id="btn-again">GO OUT AGAIN</button>
+      <button class="btn primary" id="btn-again">RETURN TO THE VILLAGE</button>
       <button class="btn" id="btn-menu">MENU</button>
     </div>
     <button class="btn ghost" id="btn-go-shop">SPEND SCRAP</button>
@@ -210,7 +228,7 @@
       <h2>THE STOCKPILE</h2>
       <div class="shard-count"><span class="shard-ico">▣</span><span id="shop-shards">0</span></div>
     </div>
-    <p class="hint">Scrap recovered on Tonight survives the reset. Choose what Holt carries into the next route.</p>
+    <p class="hint">Scrap recovered during the story survives the reset. Choose what Holt carries into the next attempt.</p>
     <div id="shop-list"></div>
   </div>
 </div>
@@ -237,7 +255,7 @@
       <div></div>
     </div>
     <div class="stat-grid" id="records-grid"></div>
-    <h3 class="sub">NIGHT LOG</h3>
+    <h3 class="sub">RUN LOG</h3>
     <div id="daily-history"></div>
   </div>
 </div>

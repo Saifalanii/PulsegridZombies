@@ -1,7 +1,7 @@
 {
   "name": "Nightfall Village",
   "short_name": "Nightfall",
-  "description": "Top-down zombie survival in a village that rolls back to dusk. One fixed route each night, unlimited Practice runs.",
+  "description": "Survive a village trapped in a repeating night and uncover the signal controlling the loop.",
   "id": "/nightfall-village/",
   "start_url": ".",
   "scope": ".",
@@ -23,16 +23,16 @@
   ],
   "shortcuts": [
     {
-      "name": "Tonight",
-      "short_name": "Tonight",
-      "description": "Go straight into tonight's fixed route",
-      "url": "./?mode=daily",
+      "name": "Continue the Night",
+      "short_name": "Story",
+      "description": "Continue Holt's story in the repeating village",
+      "url": "./?mode=story",
       "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
     },
     {
-      "name": "Practice Night",
-      "short_name": "Practice",
-      "description": "Learn the streets with no scrap or streak at stake",
+      "name": "Quick Run",
+      "short_name": "Quick Run",
+      "description": "Test weapons and builds without changing story progress",
       "url": "./?mode=practice",
       "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
     }

@@ -74,8 +74,9 @@ const COMBO_WINDOW = 2.4;
 // The old director was an endless tap: it emitted a group every few seconds for the
 // whole run. Rounds give that pressure a shape. Each one has a finite quota, finishes
 // only after the last living zombie is dealt with, and is followed by enough quiet time
-// to choose an upgrade and reposition before the next horde arrives.
-const ROUND_BREAK = 12;
+// to visit one of the lit services and reposition before the next horde arrives. Players
+// who are already prepared can start the next round from the HUD.
+const ROUND_BREAK = 18;
 const ROUND_BASE_ENEMIES = 8;
 const ROUND_ENEMIES_STEP = 4;
 
@@ -247,6 +248,13 @@ export class Run {
     this.playerAnim = createAnim();
 
     this.upgradeLevels = Object.create(null);
+    this.upgradeCoins = 0;
+    this.storyRadioPart = false;
+    this.storyButcherKey = false;
+    this.storyBattery = false;
+    this.storyFrequencyCode = false;
+    this.shopOffers = [];
+    this.clinicUsedWave = 0;
     this.time = 0;
     this.score = 0;
     this.kills = 0;
@@ -255,8 +263,6 @@ export class Run {
     this.comboT = 0;
     this.bestCombo = 0;
     this.tier = 0;
-    this.pendingLevelUps = 0;
-    this.pendingPickSources = [];
     this.intensity = 0;
     this.over = false;
     this.orbitAngle = 0;
@@ -279,6 +285,11 @@ export class Run {
     this.waveTotal = this.waveRemaining;
     this.waveForcedPending = !!OPENING_ROUNDS[this.wave]?.forced;
     this.spawnFrontAngle = null;
+
+    // The authored doors are real locations in the central block: the purple storefront
+    // south-east of the crossing is the Safehouse, and the apartment entrance north-east
+    // is the Clinic. Procedural fallback runs receive equivalent reachable positions.
+    this.services = this._createServices(!!config.mapData);
 
     // Preallocated depth-sort scratch for the draw pass. Two parallel arrays rather than
     // an array of objects: no allocation, and the sort only moves 32-bit values.
@@ -383,12 +394,10 @@ export class Run {
    * for the rest of the night. Crate picks therefore draw from `rngAux`, the stream that
    * already exists for player-driven rolls (crits, drops, bloater spill).
    */
-  rollUpgradeChoices(n = 3) {
-    // A supply pickup is a player choice and therefore draws from the auxiliary stream;
-    // round/level rewards use the shared upgrade stream. Keeping the source beside the
-    // queued pick prevents an older level reward from accidentally consuming a crate roll.
-    const source = this.pendingPickSources[0];
-    const rng = source?.aux ? this.rngAux : this.rngUpgrade;
+  rollUpgradeChoices(n = 3, aux = false) {
+    // The round shop uses the shared stream; a supply-driven refresh uses the auxiliary
+    // stream so fetching a crate cannot change another player's seeded round inventory.
+    const rng = aux ? this.rngAux : this.rngUpgrade;
     const avail = [], weights = [];
     for (const u of UPGRADES) {
       const lvl = this.upgradeLevels[u.id] || 0;
@@ -409,19 +418,157 @@ export class Run {
     return out;
   }
 
-  queueUpgradePick(label, aux = false) {
-    this.pendingLevelUps++;
-    this.pendingPickSources.push({ label, aux });
+  awardUpgradeCoins(amount = 1, source = 'FOUND') {
+    this.upgradeCoins += amount;
+    this.onUpgradeCoin?.(amount, source);
+  }
+
+  upgradePrice(choice) {
+    // Early ranks remain affordable each round; committed builds eventually ask the
+    // player to save instead of buying automatically every time the doors open.
+    return 1 + Math.floor((choice.level - 1) / 2);
+  }
+
+  buyShopUpgrade(choice) {
+    if (this.waveState !== 'intermission') return false;
+    const i = this.shopOffers.indexOf(choice);
+    if (i < 0) return false;
+    const current = this.upgradeLevels[choice.def.id] || 0;
+    if (current >= choice.def.max) {
+      this.shopOffers.splice(i, 1);
+      return false;
+    }
+    const cost = this.upgradePrice(choice);
+    if (this.upgradeCoins < cost) return false;
+    this.upgradeCoins -= cost;
+    this.shopOffers.splice(i, 1);
+    this.applyUpgrade(choice);
+    this.onUpgradeBought?.(choice, cost);
+    return true;
+  }
+
+  useClinic() {
+    if (this.waveState !== 'intermission' || this.clinicUsedWave === this.wave) return false;
+    if (this.upgradeCoins < 1 || this.player.hp >= this.stats.maxHp) return false;
+    const healed = Math.min(this.stats.maxHp - this.player.hp, Math.ceil(this.stats.maxHp * 0.4));
+    this.upgradeCoins--;
+    this.player.hp += healed;
+    this.clinicUsedWave = this.wave;
+    this.particles.ring(this.player.x, this.player.y, 14, 150, 0.6, HEAL_RGB, 5);
+    this.particles.text(this.player.x, this.player.y - 38, `+${Math.ceil(healed)} HP`, HEAL_RGB, 0.9, 16);
+    audio.pickup();
+    juice.levelUp();
+    this.onClinicUsed?.(healed);
+    return true;
   }
 
   applyUpgrade(choice) {
-    const lvl = (this.upgradeLevels[choice.def.id] || 0) + 1;
+    const current = this.upgradeLevels[choice.def.id] || 0;
+    if (current >= choice.def.max) return false;
+    const lvl = current + 1;
     this.upgradeLevels[choice.def.id] = lvl;
-    choice.def.apply(this.stats, this.player, lvl);
+    choice.def.apply(this.stats, this.player, lvl, this.melee);
     if (choice.def.id === 'shield') { this.player.shield = this.stats.shieldMax; }
     if (choice.def.id === 'dashmaster' && lvl === 2) this.player.dashLeft += 1;
     this.player.hp = Math.min(this.player.hp, this.stats.maxHp);
     this._recomputeDerived();
+    return true;
+  }
+
+  /** Resume at a completed story hand-in, never in the middle of a fight. */
+  resumeStoryCheckpoint(cp) {
+    if (!cp || cp.stage !== (this.cfg.storyStage || 0) || cp.wave < 1) return false;
+
+    // Rebuild the saved upgrade stack through the same application path as purchases so
+    // derived stats, health ranks, sprint charges and weapon-specific effects agree.
+    for (const def of UPGRADES) {
+      const ranks = Math.min(def.max, Math.max(0, cp.upgradeLevels?.[def.id] || 0));
+      for (let rank = 0; rank < ranks; rank++) this.applyUpgrade({ def });
+    }
+
+    this.player.level = Math.max(1, cp.level || 1);
+    this.player.xp = Math.max(0, cp.xp || 0);
+    this.player.xpNext = xpForLevel(this.player.level);
+    this.upgradeCoins = Math.max(0, cp.upgradeCoins || 0);
+    this.runShards = Math.max(0, cp.runShards || 0);
+    this.player.hp = clamp((cp.hpRatio ?? 1) * this.stats.maxHp, 1, this.stats.maxHp);
+
+    this.wave = cp.wave;
+    this.waveState = 'intermission';
+    this.waveBreakT = 30;
+    this._lastWaveCountdown = -1;
+    this.waveRemaining = 0;
+    this.waveTotal = this._waveBudget(this.wave);
+    this.waveForcedPending = false;
+    this.spawnT = 0.75;
+    this.shopOffers = this.rollUpgradeChoices(3);
+
+    // A checkpoint is a return to the Safehouse. Put Holt on its doorstep so resuming
+    // begins with the saved build and services, not a 30-second navigation chore.
+    const checkpointService = this.services.find((s) =>
+      s.kind === ((this.cfg.storyStage || 0) >= 4 ? 'radio' : 'safehouse'));
+    if (checkpointService) {
+      this.player.x = checkpointService.x;
+      this.player.y = checkpointService.y;
+      checkpointService.wasInside = false;
+    }
+    this.world.computeFlow(this.player.x, this.player.y);
+    return true;
+  }
+
+  _createServices(authored) {
+    const cell = this.world.mapCell || 64;
+    const specs = authored ? [
+      // Doorstep of the purple storefront south-east of the starting crossing.
+      { kind: 'safehouse', label: 'SAFEHOUSE', short: 'S', color: [86, 216, 255],
+        x: this.world.ox + 38.5 * cell, y: this.world.oy + 27.5 * cell },
+      // Doorstep of the north-east apartment repurposed as a field clinic.
+      { kind: 'clinic', label: 'CLINIC', short: '+', color: HEAL_RGB,
+        x: this.world.ox + 42.5 * cell, y: this.world.oy + 15.3 * cell },
+      // Western municipal building, repurposed as the locked emergency transmitter.
+      { kind: 'radio', label: 'RADIO STATION', short: 'R', color: [194, 132, 255],
+        x: this.world.ox + 25.5 * cell, y: this.world.oy + 14.5 * cell },
+    ] : [
+      { kind: 'safehouse', label: 'SAFEHOUSE', short: 'S', color: [86, 216, 255],
+        x: this.player.x + 300, y: this.player.y + 250 },
+      { kind: 'clinic', label: 'CLINIC', short: '+', color: HEAL_RGB,
+        x: this.player.x + 360, y: this.player.y - 280 },
+      { kind: 'radio', label: 'RADIO STATION', short: 'R', color: [194, 132, 255],
+        x: this.player.x - 360, y: this.player.y - 260 },
+    ];
+
+    this.world.computeFlow(this.player.x, this.player.y);
+    for (const s of specs) {
+      if (this.world.nearestReachable(s.x, s.y, 18, 6)) {
+        s.x = this.world._ox;
+        s.y = this.world._oy;
+      }
+      s.wasInside = false;
+      s.radius = 46;
+    }
+    return specs;
+  }
+
+  _updateServices() {
+    if (this.waveState !== 'intermission') {
+      for (const s of this.services) s.wasInside = false;
+      return;
+    }
+    const p = this.player;
+    for (const s of this.services) {
+      if (s.kind === 'radio' && (!this.cfg.isStory || (this.cfg.storyStage || 0) < 3)) continue;
+      const dx = p.x - s.x, dy = p.y - s.y;
+      const inside = dx * dx + dy * dy <= s.radius * s.radius;
+      if (inside && !s.wasInside) {
+        s.wasInside = true;
+        // The overlay pauses simulation after this fixed step. Leave enough fraction on
+        // the clock that this same step cannot also roll directly into the next horde.
+        this.waveBreakT = Math.max(this.waveBreakT, 2);
+        this.onServiceEnter?.(s.kind);
+      } else if (!inside && dx * dx + dy * dy > (s.radius + 22) ** 2) {
+        s.wasInside = false;
+      }
+    }
   }
 
   // ---------------------------------------------------------------- update
@@ -442,6 +589,7 @@ export class Run {
     this.palette.update(dt);
 
     this._updatePlayer(dt, input);
+    this._updateServices();
     // Supply and enemy placement both require the player's connected walkable region.
     // Build it before either director runs; _updateEnemies later sees the same tile and
     // its computeFlow call becomes a cheap no-op.
@@ -870,13 +1018,32 @@ export class Run {
   _updateDrop(dt) {
     const d = this.drop;
 
+    // Chapter One introduces the guarded crate only after Holt has established the
+    // Safehouse. Otherwise a fast Round-1 detour can collect the radio part before the
+    // story has explained why it matters, then force a second arbitrary wait.
+    if (this.cfg.isStory && !d.active) {
+      const stage = this.cfg.storyStage || 0;
+      if (stage === 0 || (stage === 1 && this.wave < 3) || (stage === 4 && this.wave < 7)) return;
+    }
+
     if (d.active) {
       // Intermission freezes the deadline but not collection: setup time is exactly
       // when a player should be allowed to reach supplies already on the ground.
       if (this.waveState !== 'intermission') {
         d.t += dt;
         d.life -= dt;
-        if (d.life <= 0) { d.active = false; this.onDropLost?.(); return; }
+        if (d.life <= 0) {
+          d.active = false;
+          // A missed optional crate can wait for the normal cycle. A missed chapter
+          // crate must retry, otherwise the Round-3 hand-in gate becomes a softlock.
+          const storyStage = this.cfg.storyStage || 0;
+          if (this.cfg.isStory && ((storyStage === 1 && this.wave >= 3) ||
+                                   (storyStage === 4 && this.wave >= 7))) {
+            this.dropT = 2;
+          }
+          this.onDropLost?.();
+          return;
+        }
       }
 
       const p = this.player;
@@ -888,14 +1055,26 @@ export class Run {
       return;
     }
 
-    // Do not schedule a new guarded objective during safe setup time.
-    if (this.waveState === 'intermission') return;
+    // Holt is already carrying the mandatory component; do not send duplicates while
+    // he is fighting his way back to the Safehouse.
+    if (this.cfg.isStory && (((this.cfg.storyStage || 0) === 1 && this.storyRadioPart) ||
+                             ((this.cfg.storyStage || 0) === 4 && this.storyBattery))) return;
+
+    const storyStage = this.cfg.storyStage || 0;
+    const requiredStoryDrop = this.cfg.isStory &&
+      ((storyStage === 1 && this.wave >= 3) || (storyStage === 4 && this.wave >= 7));
+    // Optional objectives wait for combat. The required radio crate may retry during
+    // the held Round-3 break so missing the first landing cannot trap the chapter.
+    if (this.waveState === 'intermission' && !requiredStoryDrop) return;
 
     this.dropT -= dt;
     // Do not introduce a guarded side objective during final cleanup. Hold a due drop
     // for the opening/middle of the next round instead of making 1 LEFT jump back to 3.
     const dropWindowOpen = this.waveRemaining > Math.max(3, this.waveTotal * 0.35);
-    if (this.dropT <= 0 && dropWindowOpen) this._placeDrop();
+    // The Chapter-One radio crate is a required objective, not an optional bonus. The
+    // normal cleanup gate could postpone it forever because Round 3 schedules most of
+    // its small budget in roughly the same eight seconds as the story timer.
+    if (this.dropT <= 0 && (dropWindowOpen || requiredStoryDrop)) this._placeDrop();
   }
 
   /**
@@ -946,9 +1125,8 @@ export class Run {
 
     this.runShards += DROP_SCRAP;
     this.score += DROP_SCRAP * 3;
-    // The real prize. Queued through the same path as a level-up so it uses the menu the
-    // player already knows; the queued pick source keeps its draw off the daily stream.
-    this.queueUpgradePick('SUPPLY DROP', true);
+    // The real prize now belongs to the same run-only economy as the physical Safehouse.
+    this.awardUpgradeCoins(1, 'SUPPLY DROP');
 
     this.particles.ring(d.x, d.y, 10, 200, 0.7, SHARD_RGB, 6);
     this.particles.burst(d.x, d.y, 26, 240, SHARD_RGB, { life: 0.9, size: 3.4 });
@@ -977,13 +1155,39 @@ export class Run {
     // game is explicitly telling them the round is clear.
     this.ebullets.clear();
 
-    // A clear guarantees one build decision, but does not stack a bonus on top of a
-    // level already earned during the round. This keeps Round 1 from opening two menus
-    // back-to-back and keeps combat uninterrupted until the safe setup phase.
-    if (this.pendingLevelUps <= 0) this.queueUpgradePick(`ROUND ${this.wave} REWARD`);
+    this.awardUpgradeCoins(1, `ROUND ${this.wave} CLEAR`);
+    this.shopOffers = this.rollUpgradeChoices(3);
     juice.levelUp();
     this.onWaveClear?.(this.wave, ROUND_BREAK);
-    this.onLevelUp?.();
+  }
+
+  startNextWave() {
+    if (this.waveState !== 'intermission') return false;
+    if (this.cfg.isStory) {
+      const stage = this.cfg.storyStage || 0;
+      if (this.wave === 3 && stage === 1) {
+        this.onStoryBlocked?.('RADIO PART NOT INSTALLED — RETURN TO THE SAFEHOUSE');
+        return false;
+      }
+      if (this.wave === 5 && stage === 2) {
+        this.onStoryBlocked?.('BUTCHER’S KEY NOT SECURED — RETURN TO THE SAFEHOUSE');
+        return false;
+      }
+      if (this.wave === 5 && stage === 3) {
+        this.onStoryBlocked?.('RADIO STATION LOCKED — FOLLOW THE PURPLE R MARKER');
+        return false;
+      }
+      if (this.wave === 7 && stage === 4) {
+        this.onStoryBlocked?.('BATTERY NOT INSTALLED — RETURN TO THE RADIO STATION');
+        return false;
+      }
+      if (this.wave === 8 && stage === 5) {
+        this.onStoryBlocked?.('FREQUENCY NOT DECODED — RETURN TO THE RADIO STATION');
+        return false;
+      }
+    }
+    this._startWave();
+    return true;
   }
 
   _startWave() {
@@ -994,6 +1198,12 @@ export class Run {
     this.waveForcedPending = !!OPENING_ROUNDS[this.wave]?.forced;
     this.spawnFrontAngle = null;
     this.spawnT = Math.min(this.spawnT, 0.75);
+    if (this.cfg.isStory && (this.cfg.storyStage || 0) === 1 && this.wave === 3) {
+      this.dropT = 0;
+    }
+    if (this.cfg.isStory && (this.cfg.storyStage || 0) === 4 && this.wave === 7) {
+      this.dropT = 0;
+    }
     this.onWaveStart?.(this.wave);
 
     // Specials belong to memorable rounds instead of an elapsed-time alarm. That keeps
@@ -1013,6 +1223,18 @@ export class Run {
     const m = this.mods;
 
     if (this.waveState === 'intermission') {
+      // Round 3 is a physical hand-in, not optional flavour. Hold the break until the
+      // recovered component is installed at the Safehouse receiver.
+      const storyHandIn = this.cfg.isStory &&
+        ((this.wave === 3 && (this.cfg.storyStage || 0) === 1) ||
+         (this.wave === 5 && (this.cfg.storyStage || 0) === 2) ||
+         (this.wave === 5 && (this.cfg.storyStage || 0) === 3) ||
+         (this.wave === 7 && (this.cfg.storyStage || 0) === 4) ||
+         (this.wave === 8 && (this.cfg.storyStage || 0) === 5));
+      if (storyHandIn) {
+        this.waveBreakT = Math.max(this.waveBreakT, 1);
+        return;
+      }
       this.waveBreakT = Math.max(0, this.waveBreakT - dt);
       const count = Math.ceil(this.waveBreakT);
       if (count > 0 && count <= 3 && count !== this._lastWaveCountdown) {
@@ -1815,7 +2037,7 @@ export class Run {
       audio.bigDeath();
       juice.bigKill();
       this.eliteAlive = Math.max(0, this.eliteAlive - 1);
-      this.onEliteKilled?.();
+      this.onEliteKilled?.(def, e);
     } else {
       audio.enemyDeath(sizeScale);
       juice.kill(sizeScale);
@@ -1860,6 +2082,7 @@ export class Run {
     }
 
     this.enemies.releaseAt(index);
+    this.onEnemyKilled?.(def, e);
     this.onKill?.(gained, this.combo);
   }
 
@@ -2059,8 +2282,8 @@ export class Run {
         p.xp -= p.xpNext;
         p.level++;
         p.xpNext = xpForLevel(p.level);
-        const picks = this.mods.doubleUpgrade ? 2 : 1;
-        for (let i = 0; i < picks; i++) this.queueUpgradePick(`LEVEL ${p.level}`);
+        const coins = this.mods.doubleUpgrade ? 2 : 1;
+        this.awardUpgradeCoins(coins, `LEVEL ${p.level}`);
         this.particles.ring(p.x, p.y, 16, 180, 0.7, this.palette.accent, 5);
         audio.levelUp();
         juice.levelUp();
@@ -2137,6 +2360,7 @@ export class Run {
     this.world.drawGround(r);
     r.drawEdges(this.palette, this.arena);
     if (window.SHOW_COLLISION) this._drawCollisionDebug(r);
+    this._drawServices(r);
 
     // Lantern spill on the ground, under everything that stands on it.
     //
@@ -2189,7 +2413,66 @@ export class Run {
   }
 
   // Called by Game after the bloom and darkness passes, so navigation UI remains crisp.
-  drawFaceOverlay(r) { this._drawHuntMarkers(r); }
+  drawFaceOverlay(r, frameJuice) {
+    this._drawHuntMarkers(r);
+    this._drawServiceGuides(r, frameJuice);
+  }
+
+  _drawServices(r) {
+    const ctx = r.ctx;
+    ctx.save();
+    const open = this.waveState === 'intermission';
+    const pulse = 0.82 + Math.sin(this.time * 5) * 0.18;
+    for (const s of this.services) {
+      if (s.kind === 'radio' && (!this.cfg.isStory || (this.cfg.storyStage || 0) < 3)) continue;
+      ctx.globalCompositeOperation = 'lighter';
+      r.glowOrb(s.x, s.y, open ? 42 : 24, s.color, open ? 0.2 * pulse : 0.055);
+      ctx.globalCompositeOperation = 'source-over';
+      ctx.globalAlpha = open ? 1 : 0.45;
+      ctx.strokeStyle = rgba(s.color, open ? 0.95 : 0.48);
+      ctx.lineWidth = open ? 3 : 1.5;
+      ctx.beginPath();
+      ctx.ellipse(s.x, s.y + 4, s.radius, 18, 0, 0, TAU);
+      ctx.stroke();
+
+      const w = s.kind === 'safehouse' ? 98 : s.kind === 'radio' ? 112 : 70;
+      ctx.fillStyle = 'rgba(4,9,15,0.88)';
+      ctx.fillRect(s.x - w / 2, s.y - 48, w, 27);
+      ctx.strokeStyle = rgba(s.color, 0.72);
+      ctx.strokeRect(s.x - w / 2, s.y - 48, w, 27);
+      ctx.fillStyle = rgba(s.color, 1);
+      ctx.font = '800 11px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(s.label, s.x, s.y - 34);
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
+
+  _drawServiceGuides(r, frameJuice) {
+    if (this.waveState !== 'intermission') return;
+    const ctx = r.ctx, dpr = r.dpr;
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.font = '800 10px system-ui, sans-serif';
+    for (const s of this.services) {
+      if (s.kind === 'radio' && (!this.cfg.isStory || (this.cfg.storyStage || 0) < 3)) continue;
+      const pt = r.worldToScreen(s.x, s.y, frameJuice);
+      if (pt.x >= 46 && pt.x <= r.w - 46 && pt.y >= 82 && pt.y <= r.h - 72) continue;
+      const x = clamp(pt.x, 48, r.w - 48);
+      const y = clamp(pt.y, 92, r.h - 78);
+      ctx.fillStyle = 'rgba(4,9,15,0.9)';
+      ctx.fillRect(x - 42, y - 14, 84, 28);
+      ctx.strokeStyle = rgba(s.color, 0.85);
+      ctx.strokeRect(x - 42, y - 14, 84, 28);
+      ctx.fillStyle = rgba(s.color, 1);
+      ctx.fillText(`${s.short}  ${s.label}`, x, y);
+    }
+    ctx.restore();
+  }
 
   /** Edge arrows for the final stragglers, once no more scheduled zombies are coming. */
   _drawHuntMarkers(r) {
@@ -2657,6 +2940,7 @@ export class Run {
   results() {
     return {
       isDaily: this.cfg.isDaily,
+      isStory: !!this.cfg.isStory,
       date: this.cfg.dateKey,
       mutator: this.cfg.mutator,
       score: this.score,

@@ -73,27 +73,30 @@ export function defaultModifiers() {
 
 /**
  * Build a run config.
- * @param {'daily'|'practice'} mode
- * @param {string} [dateKey] only used for daily
+ * Story is the persistent, scrap-banking campaign. Practice remains an unseeded sandbox.
+ * `isDaily` is retained as an internal compatibility flag for the run/results economy;
+ * it now means "progression run", not a calendar-limited attempt.
+ * @param {'story'|'practice'|'daily'} mode
  */
 export function makeRunConfig(mode, dateKey = todayKey()) {
-  const isDaily = mode === 'daily';
+  const isStory = mode === 'story' || mode === 'daily';
+  const isDaily = isStory;
   // The `nightfall-v1|` prefix namespaces the seed. The generator was rebalanced wholesale
   // for this fork — new roster, new village, new weapons — so it gets its own seed space
   // rather than silently reusing Pulsegrid's and producing a different night from the
   // same string.
-  const seedStr = isDaily ? `nightfall-v1|${dateKey}` : `practice|${Date.now()}|${Math.random()}`;
+  const seedStr = isStory
+    ? `first-signal|${Date.now()}|${Math.random()}`
+    : `practice|${Date.now()}|${Math.random()}`;
   const rng = Rng.fromString(seedStr);
 
   const mods = defaultModifiers();
   let mutator = null;
-  if (isDaily) {
-    // Draw the mutator first so it's a stable function of the date alone.
-    mutator = MUTATORS[Math.floor(rng.next() * MUTATORS.length)];
-    mutator.apply(mods);
-  }
+  // Chapter One teaches the authored encounters without a random modifier obscuring
+  // them. Rotating conditions can return later as optional post-chapter challenges.
 
-  return { mode, isDaily, dateKey: isDaily ? dateKey : null, seed: rng.seed, rng, mods, mutator };
+  return { mode: isStory ? 'story' : 'practice', isStory, isDaily,
+           dateKey: isStory ? 'chapter-one' : null, seed: rng.seed, rng, mods, mutator };
 }
 
 /** Preview the mutator for a date without building a full run (menu display). */
