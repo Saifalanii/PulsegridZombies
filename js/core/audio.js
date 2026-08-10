@@ -39,76 +39,6 @@ const pick = (arr) => arr[(Math.random() * arr.length) | 0];
 const rand = (a, b) => a + Math.random() * (b - a);
 
 /**
- * Shoot-SFX variants, selectable in Settings. See AudioEngine.shoot() for why each of
- * these keeps pitch movement and stays short.
- *
- * `this` is the AudioEngine; `p` is the already-jittered pitch multiplier.
- */
-export const SHOOT_STYLE_IDS = ['pulse', 'pluck', 'puff', 'zap', 'tick'];
-
-export const SHOOT_STYLE_LABELS = {
-  pulse: 'Bowstring',
-  pluck: 'Deep Draw',
-  puff:  'Muffled',
-  zap:   'Whipcrack',
-  tick:  'Dry Snap',
-};
-
-const SHOOT_STYLES = {
-  /**
-   * Default. A short descending sweep with a soft edge — the classic "pew" shape, but
-   * an octave up from the original and less than half its length, which is what keeps
-   * it out of the buzzy low-mids. The sweep is the whole point: continuous frequency
-   * motion is what stops a repeated short sound reading as a relay click.
-   */
-  pulse(p) {
-    this._tone({ type: 'triangle', freq: 1250 * p, toFreq: 540 * p, dur: 0.055, gain: 0.058, attack: 0.001 });
-    this._tone({ type: 'sine', freq: 2500 * p, toFreq: 1300 * p, dur: 0.032, gain: 0.020 });
-    this._noiseHit({ dur: 0.018, gain: 0.022, freq: 3000, sweepTo: 1600, q: 1.2 });
-  },
-
-  /**
-   * Warmest option. Sine with a fast pitch drop plus a touch of second harmonic —
-   * closer to a kalimba/marimba note than a weapon. Most pleasant over a long run,
-   * least "gun". Good if the tick felt mechanical.
-   */
-  pluck(p) {
-    this._tone({ type: 'sine', freq: 880 * p, toFreq: 430 * p, dur: 0.085, gain: 0.062, attack: 0.002 });
-    this._tone({ type: 'sine', freq: 1760 * p, toFreq: 900 * p, dur: 0.045, gain: 0.020 });
-  },
-
-  /**
-   * Suppressed. Almost entirely filtered noise with a fast decay and only a whisper of
-   * tone — reads as a silenced weapon. The quietest and least intrusive option; pick
-   * this if the firing sound should essentially disappear under the music.
-   */
-  puff(p) {
-    this._noiseHit({ dur: 0.055, gain: 0.055, freq: 1500 * p, sweepTo: 420 * p, q: 0.8, type: 'lowpass' });
-    this._tone({ type: 'sine', freq: 620 * p, toFreq: 380 * p, dur: 0.035, gain: 0.018 });
-  },
-
-  /**
-   * Brightest and most arcade. Sawtooth sweeping fast and high — closest to a classic
-   * vector-shooter laser. More present in the mix than the others by design; the one
-   * to pick if the others feel too polite.
-   */
-  zap(p) {
-    this._tone({ type: 'sawtooth', freq: 1900 * p, toFreq: 780 * p, dur: 0.045, gain: 0.042, attack: 0.001 });
-    this._tone({ type: 'square', freq: 3200 * p, toFreq: 1500 * p, dur: 0.022, gain: 0.014 });
-  },
-
-  /**
-   * The hit-marker tick. Kept because it is genuinely the most unobtrusive, but it is
-   * the one that reads as a car indicator: a narrow band with almost no frequency
-   * motion. Retained as an option rather than a default.
-   */
-  tick(p) {
-    this._noiseHit({ dur: 0.026, gain: 0.05, freq: 3600 * p, sweepTo: 2300 * p, q: 2.4, type: 'bandpass' });
-    this._tone({ type: 'sine', freq: 2200 * p, toFreq: 1600 * p, dur: 0.038, gain: 0.038, attack: 0.001 });
-  },
-};
-
-/**
  * Composed music tracks, streamed from disk and looped.
  *
  * These are the first sounds in the game that aren't synthesised at runtime. They ride a
@@ -181,7 +111,6 @@ export class AudioEngine {
     this._targetIntensity = 0;
     this._playing = false;
     this._lastSfxAt = new Map(); // crude per-sound rate limit
-    this.shootStyle = 'pulse';   // see SHOOT_STYLES; overridden from settings on boot
     this._amb = null;            // sustained ambience nodes, see _startAmbience()
     this._ambNodes = null;       // everything that needs stop()ing
     this._nextEventTime = 0;     // wall-clock (audio clock) of the next sparse event
@@ -708,31 +637,6 @@ export class AudioEngine {
 
   // ---------------------------------------------------------------- SFX
 
-  /**
-   * Fires on every shot, several times a second, for minutes — so whichever variant is
-   * selected has to survive heavy repetition without becoming fatiguing.
-   *
-   * Two failure modes learned the hard way, both encoded in the variants below:
-   *
-   *  - Too long and too low. The original swept a triangle 760 -> 300Hz over 85ms:
-   *    descending into the low-mids (where "grating" lives) and long enough that
-   *    consecutive shots fused into a continuous tone.
-   *  - Too short and too narrow-band. The first fix over-corrected into a bandpassed
-   *    noise tick with no pitch movement, which is precisely the recipe for a car
-   *    indicator relay. A click with *no frequency motion* reads as a mechanism, not
-   *    as a weapon.
-   *
-   * So every variant here has some pitch movement, stays under ~90ms, and peaks well
-   * below hit() (0.10) and enemyDeath() (0.16) so impacts still outrank firing.
-   */
-  shoot(pitch = 1) {
-    if (this._throttle('shoot', 34)) return;
-    // Per-shot pitch jitter. Without it, a fixed frequency repeating at a steady fire
-    // rate fuses into one droning pitch — the machine-gun-drill effect.
-    const p = pitch * (0.94 + Math.random() * 0.12);
-    (SHOOT_STYLES[this.shootStyle] || SHOOT_STYLES.pulse).call(this, p);
-  }
-
   // -------------------------------------------------------- horror palette
   //
   // The old palette was sci-fi: square-wave zaps, bright sawtooth sweeps, ringing
@@ -1076,6 +980,32 @@ export class AudioEngine {
     [0, 5, 9].forEach((semi, i) => this._tone({ type: 'triangle',
       freq: midiToFreq(ROOT + 22 + semi), dur: 0.34, gain: 0.075,
       delay: i * 0.085, attack: 0.01 }));
+  }
+
+  /** A new enemy behaviour entering the roster: low warning pulse and dry radio tick. */
+  threatReveal() {
+    if (this._throttle('threatReveal', 700)) return;
+    this._tone({ type: 'sine', freq: 92, toFreq: 46, dur: 0.42, gain: 0.12, attack: 0.008 });
+    this._noiseHit({ dur: 0.08, gain: 0.07, freq: 1800, sweepTo: 420,
+      q: 2.2, type: 'bandpass', delay: 0.06 });
+  }
+
+  /** Upgrade locked in: brighter and more decisive than an ordinary menu click. */
+  upgradeSelect() {
+    if (this._throttle('upgradeSelect', 100)) return;
+    this._tone({ type: 'triangle', freq: 330, toFreq: 660, dur: 0.13,
+      gain: 0.08, attack: 0.003 });
+    this._noiseHit({ dur: 0.025, gain: 0.035, freq: 2900, q: 3.4,
+      type: 'bandpass', delay: 0.1 });
+  }
+
+  /** Pulling the door shut on a run. */
+  retreat() {
+    if (this._throttle('retreat', 250)) return;
+    this._noiseHit({ dur: 0.18, gain: 0.12, freq: 520, sweepTo: 90,
+      q: 0.8, type: 'lowpass' });
+    this._noiseHit({ dur: 0.035, gain: 0.05, freq: 1600, sweepTo: 320,
+      q: 2.5, type: 'bandpass', delay: 0.16 });
   }
 
   supplyDrop() {

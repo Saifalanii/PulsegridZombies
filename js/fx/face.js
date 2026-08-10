@@ -271,7 +271,7 @@ export class Portrait {
 
     ctx.globalCompositeOperation = 'source-over';
 
-    // HOLT/MAREN/BRIAR draw the real LPC head — one character sheet, three survivors, so
+    // HOLT draws the real LPC head for every loadout, so
     // the shape+colour ring above is what still tells them apart at a glance. THE BAND
     // draws a zombie head from the rotting sheet: `sprite: 'zombie'` picks the sheet,
     // `sprite: true` keeps the survivor one.

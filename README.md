@@ -1,11 +1,13 @@
 # Nightfall Village
 
 A top-down zombie-survival roguelite as an installable PWA. Canvas 2D, vanilla ES modules,
-**no build step and no dependencies**. Every sound is still synthesised in code at runtime;
-the art is not — see [Credits](#credits).
+**no build step and no dependencies**. Music and player swings use recorded assets; the
+remaining effects and village ambience are generated with Web Audio. See [Credits](#credits)
+for the art.
 
-You are one survivor in a village that fills up with the dead every night. You get one
-seeded run per calendar day, and so does everybody else, from the same seed.
+Holt is trapped in a village that rolls back to dusk whenever he falls. The Band opens one
+fixed route each calendar night; Practice reshuffles the horde and rewards but does not bank
+scrap or extend the streak.
 
 ## Running it
 
@@ -35,8 +37,10 @@ serve.mjs               zero-dependency static server
 tools/make-icons.mjs    generates icons/*.png from signed distance fields
 CREDITS.md              third-party art attribution — read this before redistributing
 assets/
-  characters/           6 LPC spritesheets (1 survivor, 4 zombie variants, 1 spare)
-  tiles/                village tileset, DAY and NIGHT variants (NIGHT is what ships)
+  characters/           survivor loadout sheets and zombie variants
+  city/                 source city sheet and supply chest
+  maps/                 authored village map, collision data and map tiles
+  audio/                music plus recorded machete swings
 js/
   main.js               boot, fixed-timestep loop, state machine
   core/   math rng pool audio save input
@@ -46,17 +50,16 @@ js/
 ```
 
 
-### The nightly run is genuinely shared
+### Tonight is deterministic
 
-The simulation runs at a fixed 120Hz step so a 60Hz and a 144Hz phone integrate
-identically, and the RNG is split into four streams:
+The simulation runs at a fixed 120Hz step, and randomness is split so player-driven drops
+cannot reshuffle the director:
 
 | stream | drives | advanced by |
 | --- | --- | --- |
 | `rng` | wave composition, spawn angles, elite schedule | the spawn timer only |
 | `rngUpgrade` | level-up offers | one draw per level |
 | `rngAux` | crits, drops, bloater spill, horde calls | player actions |
-| world gen | the village itself: streets, houses, treeline, pond | construction only |
 
 The director's stream is never touched by anything the player does — including a full
 enemy pool, which drops the spawn but still consumes its draws. Two players on the same
@@ -64,9 +67,8 @@ date get byte-identical waves, the same three upgrades at level *N*, and the sam
 and differ only in how well they play. Cosmetic randomness (particle jitter, barks) uses
 `Math.random` so it can't perturb a run.
 
-The village generator deliberately runs on its own stream (`seed ^ 0x27d4eb2d`), consumed
-entirely inside `World`'s constructor. Sharing the director's stream would have meant that
-changing map generation silently reshuffled every historical daily.
+The authored village is fixed. If its map file cannot load, the procedural fallback uses a
+separate seed so fallback construction still cannot reshuffle the horde.
 
 One upgrade needed adjusting for this contract. `Bloodhound` only affects projectiles, so
 on a melee build it was a dead card — but it can't be filtered out of the draw, because
@@ -75,19 +77,17 @@ they're carrying. It gained a reach bonus instead, so it's live for both.
 
 ### The village is real geometry, not a backdrop
 
-`js/game/world.js` generates a 75×75 tile settlement and rasterises every solid thing —
-water, house footprints, tree trunks, fence posts — into one flat `Uint8Array` at tile
-resolution. Collision is then four array reads per entity per axis, independent of how
-many props exist, and allocates nothing. A per-prop AABB scan would have been ~180
-rectangles × 120 enemies × 120Hz.
+`js/game/world.js` loads the authored town map and rasterises its collision layer into one
+flat `Uint8Array` at tile resolution. Collision is then four array reads per entity per
+axis, independent of how many props exist, and allocates nothing.
 
 Movement is axis-separated so entities slide along walls rather than sticking, which
 matters enormously when a dozen shamblers are funnelling down a lane between two houses.
 Arrows and bile stop on walls too, so buildings are cover for both sides.
 
 Drawing is viewport-culled, and props and characters are merged into one depth-sorted
-pass (insertion sort over two preallocated typed arrays). Without that, a survivor standing
-behind a house draws on top of its roof and the whole place reads as a flat painting.
+pass (insertion sort over two preallocated typed arrays). A foreground prop fades when it
+covers Holt, preserving depth without hiding the player under a roof or tree.
 
 **Scale.** The tileset is 16px art with a much chunkier pixel density than the 64px LPC
 frames. Tiles are drawn at 2× (16 source px → 32 world px) and characters at a 64px world
@@ -196,15 +196,10 @@ phone.** Quality auto-drops after sampling the first ~140 frames.
 development happily serves the module you edited thirty seconds ago, and you end up
 debugging a file the page isn't running.
 
-`SHELL` uses `addAll`, which is atomic — one bad path fails the whole install. It lists 35
-of the 75 tile files, not all of them: every DAY variant is excluded (this game only
-happens after dark) and so are the NIGHT props the generator never places. The list must
-stay in step with `TILE_DEFS` / `DECAL_DEFS` / `PROP_DEFS` in `js/game/world.js`, which
-exports `shellAssets()` returning exactly that list — so a mismatch can be caught by
-diffing the two rather than by discovering offline play is broken.
-
-`player_hero_alt.png` is deliberately absent from the shell: it's a standard-geometry
-fallback for the same character and nothing references it.
+`SHELL` uses `addAll`, which is atomic — one bad path fails the whole install. It contains
+the authored map, every playable character/enemy sheet, the city art, UI shell and combat
+swings. The larger music files enter the runtime cache after first playback so a flaky
+connection cannot make the entire offline install fail.
 
 ### Sprite geometry, verified not assumed
 
@@ -237,10 +232,10 @@ the same day doesn't double-count, and milestones pay out once.
 
 - **No Tone.js.** ~200KB of CDN dependency in an offline-first PWA, when every sound here
   is a short envelope on primitive oscillators plus two noise buffers. Raw Web Audio.
-- **Sprint instead of a fire button.** Attacking is automatic and auto-aimed at the nearest
-  threat (elites weighted closer). An attack button on an auto-swinger is busywork; a
-  sprint with i-frames is a real decision, and it's the counterplay to every wind-up in the
-  game. Manual aim is available in Settings.
+- **Sprint and heavy share one touch zone.** Attacking is automatic and auto-aimed at the
+  nearest threat (elites weighted closer). Tap the action side to sprint; hold it to commit
+  a heavy attack. Keyboard players use Space and E. A visible readiness control and hold
+  ring make the two actions explicit.
 - **The village is bounded** (2400×2400, tighter under FOGBOUND) rather than infinite, so
   the camera can frame the fight and there's no running away forever. Outside the tile map
   is flooded with night, which reads as woods too dark to walk into rather than as the edge
@@ -267,17 +262,9 @@ the same day doesn't double-count, and milestones pay out once.
   shape. Detuned sawtooth pairs beat convincingly and still read as a synth pad, because
   nothing in them has a resonant cavity. Every parameter is re-rolled per call, so a dozen
   overlapping groans stack into a crowd instead of into a chord.
-- **There is no music, and no tempo.** The score used to be a 16-step sequencer — chord
-  progression, rotating bass patterns, a kick on the quarter, a sub "heartbeat" on the
-  downbeat, tempo climbing with intensity. That is dance-music architecture, inherited from
-  the neon shooter this was forked from, and retuning it never helped: a steady pulse grid
-  creates momentum and confidence, which is the opposite of a dark village. It is now a wind
-  bed and a microtonally-drifting drone, plus single arrhythmic events — a dog streets away,
-  timber giving, a far-off collapse, a groan you cannot place — on a randomised timer. The
-  gaps are the composition. Intensity is spent entirely on density and pressure: the mean
-  gap between events falls from ~11s to ~3.5s, the wind's lowpass opens, a sub-bass rumble
-  swells on I², and a tritone fades in against the drone. No drums at any intensity. The air
-  thickens; a track never drops.
+- **Music stays beneath the street.** Menu and run themes are recorded tracks. A generated
+  wind bed, drifting drone and sparse distant events sit around them; intensity changes
+  density and pressure rather than turning the night into a dance track.
 - **A fresh save key.** `pulsegrid.zombies.save.v1`. The weapon ids, unlock ids and the
   meaning of half the numbers changed; migrating a Pulsegrid save would hand the survivor a
   weapon that no longer exists. The daily seed namespace changed to `nightfall-v1|` for the
@@ -285,14 +272,14 @@ the same day doesn't double-count, and milestones pay out once.
 
 ## Cast
 
-| weapon | who | temperament |
+| survivor | loadout | temperament |
 | --- | --- | --- |
-| **Machete** | HOLT | Gets in close. Never explains why. |
-| **Hunting Bow** | MAREN | Picks her moment. Only needs the one. |
-| **Fire Axe** | BRIAR | Solves crowds by making them smaller. |
+| **HOLT** | Machete | Fast and close; makes room. |
+| **HOLT** | Hunting Bow | Slow draw; lines the street up. |
+| **HOLT** | Fire Axe | Slow, wide, and built for doorways. |
 
 **THE BAND**, a voice on the emergency channel, shows up on the nightly brief and the
-results screen — taunts a broken streak, grudgingly concedes at milestones.
+results screen, sets the nightly conditions and keeps the count.
 
 ## Credits
 
@@ -307,12 +294,6 @@ needs to be filled in and how to get it.
 
 - No backend, so the leaderboard is local-only. A shared nightly board is the obvious v2.
 - Not yet profiled on real mid-range hardware (see the performance caveat above).
-- The `shoot` block in the LPC sheets has **no bow drawn in it** — the character mimes the
-  draw and release with empty hands. The Hunting Bow is named and behaves like a bow and
-  fires arrow streaks, but you will not see the bow itself. Fixing this means adding a
-  weapon layer in the LPC generator and re-exporting the sheet.
-- Character portraits in the menus are still the original procedural eye system rather than
-  crops of the actual sprites.
 - The tileset's `BRIDGE` and `STAIRS` props are unused: they need water-crossing and
   elevation logic the world doesn't have.
 - The internal save field for scrap is still named `shards`, and the trail/lantern ids are

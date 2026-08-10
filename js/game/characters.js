@@ -1,12 +1,8 @@
 // Characters: who you are, who's watching, and why any of it matters.
 //
-// Weapons aren't stat blocks, they're roles. Picking up the axe instead of the machete
-// changes how you have to stand in a crowd, and the game treats that as changing who
-// you are for the night — which costs nothing mechanically and gives the meta
-// progression something to be about.
-//
-// The `id` keys are still `weapon_*` because they double as the save's equipped-weapon
-// ids and the stockpile's unlock ids.
+// There is one survivor: HOLT. A loadout changes how HOLT fights, not who walks into the
+// village. Keeping one identity matches the one actual survivor sprite and stops a weapon
+// purchase from silently replacing the protagonist.
 
 // ---------------------------------------------------------------- the survivor
 
@@ -15,7 +11,7 @@ export const CORES = {
     id: 'weapon_machete',
     name: 'HOLT',
     role: 'Machete',
-    blurb: 'Gets in close. Never explains why.',
+    blurb: 'Fast, close, and built for making space.',
     long: 'Ran the hardware counter before. Knows every fence line and every back gate in this village, which is the only reason he is still standing in it.',
     eyeStyle: 'calm',
     sides: 3,
@@ -26,28 +22,28 @@ export const CORES = {
   },
   weapon_bow: {
     id: 'weapon_bow',
-    name: 'MAREN',
+    name: 'HOLT',
     role: 'Hunting Bow',
-    blurb: 'Picks her moment. Only needs the one.',
-    long: 'Hunted this treeline for eleven years. The dead move slower than deer and stand in straighter lines, and she considers that an insult.',
+    blurb: 'Slow draw, long reach, and room to line them up.',
+    long: 'Ran the hardware counter before. Knows every fence line and every back gate in this village, which is the only reason he is still standing in it.',
     eyeStyle: 'calm',
-    sides: 6,
-    rgb: [176, 210, 160],
+    sides: 3,
+    rgb: [186, 214, 235],
     pupilRgb: [255, 255, 255],
-    spin: 0.28,
+    spin: 0.5,
     sprite: true,
   },
   weapon_axe: {
     id: 'weapon_axe',
-    name: 'BRIAR',
+    name: 'HOLT',
     role: 'Fire Axe',
-    blurb: 'Solves crowds by making them smaller.',
-    long: 'Took the axe off the station wall the first night and has not put it down since. Swings slow. Only has to connect once.',
-    eyeStyle: 'eager',
-    sides: 5,
-    rgb: [235, 150, 90],
+    blurb: 'Slow, wide, and made for a crowded doorway.',
+    long: 'Ran the hardware counter before. Knows every fence line and every back gate in this village, which is the only reason he is still standing in it.',
+    eyeStyle: 'calm',
+    sides: 3,
+    rgb: [186, 214, 235],
     pupilRgb: [255, 255, 255],
-    spin: 1.4,
+    spin: 0.5,
     sprite: true,
   },
 };
@@ -59,13 +55,12 @@ export const coreFor = (weaponId) => CORES[weaponId] || CORES.weapon_machete;
 /**
  * The voice on the emergency band. Never seen, never helps, keeps the count.
  *
- * Replaces the Grid's custodian in the same structural slot: it announces the night's
- * conditions, taunts a broken streak, and grudgingly concedes at milestones. Somebody
- * has to be keeping score or the daily has no audience.
+ * It announces the night's conditions and acknowledges streak milestones. Somebody has
+ * to be holding the real route open, or Tonight has no place in the fiction.
  */
 export const RIVAL = {
   name: 'THE BAND',
-  role: 'Something dead on the emergency channel',
+  role: 'A voice that should not still be broadcasting',
   // Draws a real zombie head rather than the abstract eyes-in-a-shape face — see the
   // sheet choice in Portrait.draw. `pupilRgb` and `eyeStyle` below are now only consulted
   // if that sheet fails to decode, which is the one case the fallback still covers.
@@ -82,10 +77,10 @@ export const RIVAL = {
  * The daily loop needs a "why" and this is it: the village resets, you don't.
  */
 export const STAKES = {
-  title: 'WHY ANY OF THIS',
-  line: 'At midnight the village fills up again. Morning never quite arrives.',
-  line2: '{name} walks back in anyway. The Band keeps the count when the village resets.',
-  signoff: '— Something dead owns the emergency frequency. Prove it wrong.',
+  title: 'THE LOOP',
+  line: 'Whenever Holt falls, the village rolls back to dusk. The dead return exactly as they were.',
+  line2: 'The Band opens one real route each night. Holt keeps his memory, and anything he carries back through that signal.',
+  signoff: 'Practice teaches the streets. Tonight is the route that counts.',
 };
 
 // ---------------------------------------------------------------- lantern flavour

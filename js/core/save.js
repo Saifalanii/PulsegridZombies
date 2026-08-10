@@ -49,7 +49,6 @@ const DEFAULTS = {
     // manual-aim mode. A save written before this change may still carry an old
     // `autoFire: false`; deepMerge in load() means that stale key just sits unread
     // in this object from now on, harmlessly, since nothing checks it any more.
-    shootSound: 'pulse',   // see SHOOT_STYLES in core/audio.js
   },
 
   seenTutorial: false,
@@ -90,11 +89,10 @@ function deepMerge(base, patch) {
  * an invisible one. Demote to the starting weapon instead — the purchase itself is left
  * in `owned`, so unshelving restores it without costing the player the scrap again.
  *
- * Empty for now — the bow was the only entry, restored once player_hero_alt.png's
- * "thrust" rows turned out to carry a real bow draw. Left in place rather than removed:
- * it's cheap infrastructure for the next time art lags behind an implemented weapon.
+ * The unfinished shotgun is deliberately shelved until it has a player-sized, correctly
+ * held animation. Keep ownership so a future finished version can be restored for free.
  */
-const SHELVED_WEAPONS = [];
+const SHELVED_WEAPONS = ['weapon_shotgun'];
 
 function sanitizeLoadout(data) {
   if (SHELVED_WEAPONS.includes(data.equippedWeapon)) {
@@ -240,7 +238,7 @@ class SaveStore {
     let awardedMilestone = milestone || null;
     if (milestone) {
       this.data.claimedMilestones.push(milestone.days);
-      // The 14-night reward is also sold in the Stockpile. A player who bought Briar
+      // The 14-night reward is also sold in the Stockpile. A player who bought the axe
       // early should not reach the milestone and receive literally nothing in that slot.
       const duplicateBonus = milestone.unlock && this.has(milestone.unlock)
         ? (milestone.duplicateShards || 0)
@@ -260,7 +258,7 @@ class SaveStore {
     const d = this.data;
     d.totalRuns++;
     d.totalKills += kills;
-    d.bestTime = Math.max(d.bestTime, time);
+    if (!abandoned) d.bestTime = Math.max(d.bestTime, time);
     if (!abandoned && isDaily) {
       const prev = d.dailyScores[date];
       if (!prev || score > prev.score) d.dailyScores[date] = { score, wave, time, kills };

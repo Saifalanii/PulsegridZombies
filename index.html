@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#04070d">
-<meta name="description" content="Nightfall Village — a top-down zombie survival roguelite. One deterministic run a night, shared by everyone.">
+<meta name="description" content="Nightfall Village — top-down zombie survival in a village that rolls back to dusk. One fixed route each night.">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -44,7 +44,7 @@
     <span class="voice-line" id="voice-line"></span>
   </div>
 
-  <div id="hud-action" class="action-status" aria-live="polite">SPRINT READY</div>
+  <div id="hud-action" class="action-status">SPRINT READY</div>
 
   <div class="hud-bottom">
     <div class="bar xp-bar"><div id="xp-fill" class="fill"></div><span id="hud-level" class="lvl">LV 1</span></div>
@@ -57,7 +57,7 @@
   <div class="scroll">
     <header class="title-block">
       <h1 class="logo"><span>NIGHTFALL</span><span class="logo-alt">VILLAGE</span></h1>
-      <p class="tagline">Morning never comes. Hold the village as long as you can. One real attempt a day.</p>
+      <p class="tagline">When Holt falls, the village rolls back to dusk. The Band opens one real route each night; what he carries out survives.</p>
     </header>
 
     <section class="card daily-card" id="daily-card">
@@ -94,10 +94,10 @@
       <button class="btn ghost" id="btn-stats">RECORDS</button>
       <button class="btn ghost" id="btn-settings">SETTINGS</button>
     </div>
-    <button class="btn ghost" id="btn-about">WHY ANY OF THIS</button>
+    <button class="btn ghost" id="btn-about">THE STORY</button>
 
     <button class="btn ghost install hidden" id="btn-install">INSTALL APP</button>
-    <p class="footnote">Practice nights never count toward your streak.</p>
+    <p class="footnote">Practice saves a best score, but never banks scrap or extends your streak.</p>
     <!-- Attribution is a licence condition of the LPC art, not a courtesy. Do not remove.
          The tileset line deliberately does not claim permission we cannot evidence. -->
     <p class="footnote credits-line">Character art by Liberated Pixel Cup contributors, via the Universal LPC Spritesheet Generator (CC-BY-SA 3.0 / GPL 3.0). Village tileset: attribution pending — see CREDITS.md.</p>
@@ -123,10 +123,9 @@
 
     <div class="brief-loadout" id="brief-loadout"></div>
     <div class="brief-controls" id="brief-controls">
-      <div><b>LEFT</b> drag to move</div>
-      <div><b>RIGHT TAP</b> sprint</div>
-      <div><b>RIGHT HOLD</b> heavy attack</div>
-      <div><b>ATTACKS</b> swing on their own</div>
+      <div><b>MOVE SIDE</b> drag to move</div>
+      <div><b>ACTION SIDE</b> tap to sprint · hold for heavy</div>
+      <div><b>AUTO-ATTACK</b> targets the nearest threat</div>
     </div>
     <button class="btn primary big" id="btn-begin">GO OUT</button>
     <button class="btn ghost" id="btn-brief-back">BACK</button>
@@ -136,7 +135,7 @@
 <!-- ============================ Level up ============================ -->
 <div id="levelup" class="layer screen overlay hidden" role="dialog" aria-modal="true" aria-label="Choose an upgrade">
   <div class="levelup-inner">
-    <div class="eyebrow pulse-text">LEVEL <span id="lvl-n">2</span> — TAKE ONE</div>
+    <div class="eyebrow pulse-text" id="lvl-title">ROUND REWARD — TAKE ONE</div>
     <div class="cards" id="upgrade-cards"></div>
   </div>
 </div>
@@ -148,7 +147,8 @@
     <div class="pause-stats" id="pause-stats"></div>
     <button class="btn primary" id="btn-resume">RESUME</button>
     <button class="btn ghost" id="btn-pause-settings">SETTINGS</button>
-    <button class="btn danger ghost" id="btn-quit">GO BACK INSIDE</button>
+    <button class="btn danger ghost" id="btn-quit">END PRACTICE</button>
+    <p class="pause-quit-note" id="pause-quit-note"></p>
   </div>
 </div>
 
@@ -181,7 +181,7 @@
     <div class="shard-earned">
       <span class="shard-ico big">▣</span>
       <span id="go-shards">0</span>
-      <span class="shard-label">SCRAP BANKED</span>
+      <span class="shard-label" id="go-shard-label">SCRAP BANKED</span>
     </div>
 
     <div class="streak-result" id="go-streak"></div>
@@ -210,7 +210,7 @@
       <h2>THE STOCKPILE</h2>
       <div class="shard-count"><span class="shard-ico">▣</span><span id="shop-shards">0</span></div>
     </div>
-    <p class="hint">Scrap survives the night even when you do not. Spend it on what you take out next time.</p>
+    <p class="hint">Scrap recovered on Tonight survives the reset. Choose what Holt carries into the next route.</p>
     <div id="shop-list"></div>
   </div>
 </div>
@@ -245,7 +245,7 @@
 <!-- ============================ About / stakes ============================ -->
 <div id="about" class="layer screen hidden">
   <div class="about-inner">
-    <div class="eyebrow">WHY ANY OF THIS</div>
+    <div class="eyebrow">THE LOOP</div>
     <div class="about-cast">
       <div class="cast-member">
         <canvas class="portrait big" id="about-core-face" width="96" height="96" aria-hidden="true"></canvas>
@@ -255,13 +255,13 @@
       <div class="cast-member">
         <canvas class="portrait big" id="about-rival-face" width="96" height="96" aria-hidden="true"></canvas>
         <div class="cast-name">THE BAND</div>
-        <div class="cast-role">Something dead on the emergency channel</div>
+        <div class="cast-role">A voice that should not still be broadcasting</div>
       </div>
     </div>
     <p class="about-line" id="about-line"></p>
     <p class="about-line dim" id="about-line2"></p>
     <p class="about-signoff" id="about-signoff"></p>
-    <button class="btn primary" id="btn-about-ok">UNDERSTOOD</button>
+    <button class="btn primary" id="btn-about-ok">ENTER THE VILLAGE</button>
   </div>
 </div>
 

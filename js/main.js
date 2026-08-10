@@ -80,7 +80,6 @@ class Game {
     audio.muted = s.muted;
     audio.sfxVol = s.sfxVolume;
     audio.musicVol = s.musicVolume;
-    audio.shootStyle = s.shootSound;
     juice.shakeScale = s.screenShake;
     juice.haptics = s.haptics;
     this.setQuality(s.quality);
@@ -266,6 +265,10 @@ class Game {
       this.ui.banner(def.name);
       setTimeout(() => this.ui.say(RIVAL.name, voice.rival('miniboss'), 'eliteKill', true), 900);
     };
+    this.run.onThreatReveal = (_key, def) => {
+      audio.threatReveal();
+      this.ui.toast(`NEW THREAT — ${def.name.toUpperCase()}: ${def.desc}`, 3200);
+    };
     this.run.onMinibossSplit = () => {
       this.ui.banner('IT CAME APART');
       say('eliteKill');
@@ -275,8 +278,8 @@ class Game {
     this.run.onDropTaken = () => this.ui.banner('SUPPLIES SECURED');
     this.run.onDropLost = () => { audio.supplyLost(); this.ui.banner('SUPPLIES LOST'); };
     this.run.onHurt = () => {
-      // Below a quarter health the survivor stops joking about the hit and starts
-      // commenting on being nearly dead — same trigger, different register.
+      // Below a quarter health the survivor stops reacting to the individual hit and
+      // starts calling out the immediate danger — same trigger, higher-priority line.
       say(this.run.player.hp / this.run.stats.maxHp <= 0.25 ? 'nearDeath' : 'hurt');
     };
     this._say = say;
@@ -308,16 +311,22 @@ class Game {
     const run = this.run;
     if (run.pendingLevelUps <= 0) return;
     const choices = run.rollUpgradeChoices(3);
-    if (!choices.length) { run.pendingLevelUps = 0; return; }
+    if (!choices.length) {
+      run.pendingLevelUps = 0;
+      run.pendingPickSources.length = 0;
+      return;
+    }
     // The menu may open while the player's thumb is still moving. Mobile standalone
     // PWAs do not always deliver that pointer's eventual release back to the canvas
     // once the overlay has taken over, so explicitly end the gesture at the boundary.
     this.input.reset();
     this.state = S_LEVELUP;
     this.ui.setHudVisible(false);
-    this.ui.showUpgrades(choices, run.player.level, (choice) => {
+    const pickLabel = run.pendingPickSources[0]?.label || `LEVEL ${run.player.level}`;
+    this.ui.showUpgrades(choices, pickLabel, (choice) => {
       run.applyUpgrade(choice);
       run.pendingLevelUps--;
+      run.pendingPickSources.shift();
       this.ui.hideAll();
       if (run.pendingLevelUps > 0) {
         // FAMINE hands out two per level; chain the menus.
@@ -350,8 +359,7 @@ class Game {
 
   abandon() {
     if (!this.run) return;
-    // Going back inside still banks the scrap you actually collected — it's not a punishment
-    // mechanic, and hiding the exit behind a loss would just teach people to alt-tab.
+    audio.retreat();
     this._endRun(true);
   }
 
@@ -383,14 +391,16 @@ class Game {
       abandoned,
       date: res.date,
       score: res.score, wave: res.wave, time: res.time,
-      kills: res.kills, shards: res.shards,
+      // Practice is for learning and score-chasing, not an unlimited scrap faucet that
+      // makes the one shared night depend on how long somebody was willing to grind.
+      kills: res.kills, shards: res.isDaily ? res.shards : 0,
     });
 
     // Let the death explosion breathe before the results screen slides in.
     setTimeout(() => {
       this.ui.setHudVisible(false);
       this.ui.hideVoice();
-      this.ui.showGameOver(res, streakResult, { priorBest, priorToday });
+      this.ui.showGameOver(res, streakResult, { priorBest, priorToday, abandoned });
       if (!abandoned && res.score > 0) audio.runComplete(res.score > priorBest);
     }, abandoned ? 120 : 1100);
   }

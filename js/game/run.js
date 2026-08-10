@@ -82,15 +82,17 @@ const ROUND_ENEMIES_STEP = 4;
 // The onboarding curve is authored rather than inferred from elapsed time. On mobile,
 // pressure should come from readable groups and new behaviours, not early HP inflation.
 const OPENING_ROUNDS = {
-  1: { budget: 14, interval: 0.72, group: 2, near: true, types: ['shambler'] },
-  2: { budget: 18, interval: 0.64, group: 3, near: true, types: ['shambler', 'stalker'] },
-  3: { budget: 20, interval: 0.56, group: 3, near: true, types: ['shambler', 'stalker', 'runner'], forced: 'runner' },
-  4: { budget: 24, interval: 0.50, group: 4, types: ['shambler', 'stalker', 'runner', 'vermin'], forced: 'vermin' },
-  5: { budget: 26, interval: 0.54, group: 3, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater'], forced: 'bloater' },
-  6: { budget: 29, interval: 0.50, group: 4, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer'], forced: 'screamer' },
-  7: { budget: 32, interval: 0.47, group: 4, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer', 'brute'], forced: 'brute' },
-  8: { budget: 35, interval: 0.44, group: 4, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer', 'brute', 'spitter'], forced: 'spitter' },
-  9: { budget: 38, interval: 0.42, group: 5, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer', 'brute', 'spitter', 'lurker'], forced: 'lurker' },
+  // These are packs, not a faucet. Each group arrives from one readable street front,
+  // followed by a short breath before the next side is chosen.
+  1: { budget: 12, interval: 2.60, group: 4, near: true, fronts: true, types: ['shambler'] },
+  2: { budget: 16, interval: 2.30, group: 4, near: true, fronts: true, types: ['shambler', 'stalker'], forced: 'stalker' },
+  3: { budget: 18, interval: 2.05, group: 4, near: true, fronts: true, types: ['shambler', 'stalker', 'runner'], forced: 'runner' },
+  4: { budget: 21, interval: 1.85, group: 5, near: true, fronts: true, types: ['shambler', 'stalker', 'runner', 'vermin'], forced: 'vermin' },
+  5: { budget: 24, interval: 1.70, group: 5, near: true, fronts: true, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater'], forced: 'bloater' },
+  6: { budget: 27, interval: 1.55, group: 5, fronts: true, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer'], forced: 'screamer' },
+  7: { budget: 30, interval: 1.40, group: 5, fronts: true, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer', 'brute'], forced: 'brute' },
+  8: { budget: 33, interval: 1.25, group: 6, fronts: true, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer', 'brute', 'spitter'], forced: 'spitter' },
+  9: { budget: 36, interval: 1.15, group: 6, fronts: true, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer', 'brute', 'spitter', 'lurker'], forced: 'lurker' },
 };
 
 // ------------------------------------------------------------------ supply drops
@@ -234,7 +236,7 @@ export class Run {
     this.player = {
       x: this.world._ox ?? 0, y: this.world._oy ?? 0, vx: 0, vy: 0,
       hp: Math.round(this.stats.maxHp * this.mods.startHpMul),
-      r: 13, aim: -Math.PI / 2, fireCd: 0,
+      r: 13, aim: Math.PI / 2, fireCd: 0,
       dashCd: 0, dashLeft: this.stats.dashCharges, dashT: 0, dashDx: 0, dashDy: 0,
       iframes: 0, shield: 0, shieldT: 0, regenAcc: 0,
       heavyCd: 0, heavyQueued: false, atkHeavy: false,
@@ -254,6 +256,7 @@ export class Run {
     this.bestCombo = 0;
     this.tier = 0;
     this.pendingLevelUps = 0;
+    this.pendingPickSources = [];
     this.intensity = 0;
     this.over = false;
     this.orbitAngle = 0;
@@ -264,9 +267,6 @@ export class Run {
     // into a shopping list.
     this.drop = { active: false, x: 0, y: 0, life: 0, t: 0 };
     this.dropT = DROP_FIRST;
-    // How many of `pendingLevelUps` were granted by a crate rather than by levelling. See
-    // rollUpgradeChoices: those draws must not come off the shared daily stream.
-    this._dropPicks = 0;
 
     // Director state
     this.spawnT = 0.9;
@@ -278,6 +278,7 @@ export class Run {
     this.waveRemaining = this._waveBudget(this.wave);
     this.waveTotal = this.waveRemaining;
     this.waveForcedPending = !!OPENING_ROUNDS[this.wave]?.forced;
+    this.spawnFrontAngle = null;
 
     // Preallocated depth-sort scratch for the draw pass. Two parallel arrays rather than
     // an array of objects: no allocation, and the sort only moves 32-bit values.
@@ -325,7 +326,7 @@ export class Run {
     }
     // How far away the auto-attack is willing to commit.
     // Never acquire a target beyond the projectile's lifetime. The former 1.25 multiplier
-    // made Maren loose arrows at bodies 800 units away even though an arrow only lives for
+    // made the bow loose arrows at bodies 800 units away even though an arrow only lives for
     // 640, visibly wasting shots before the horde entered real range.
     this.engageRange = this.melee ? this.meleeReach * 1.05 : this.bulletRange * 0.96;
 
@@ -383,8 +384,11 @@ export class Run {
    * already exists for player-driven rolls (crits, drops, bloater spill).
    */
   rollUpgradeChoices(n = 3) {
-    let rng = this.rngUpgrade;
-    if (this._dropPicks > 0) { this._dropPicks--; rng = this.rngAux; }
+    // A supply pickup is a player choice and therefore draws from the auxiliary stream;
+    // round/level rewards use the shared upgrade stream. Keeping the source beside the
+    // queued pick prevents an older level reward from accidentally consuming a crate roll.
+    const source = this.pendingPickSources[0];
+    const rng = source?.aux ? this.rngAux : this.rngUpgrade;
     const avail = [], weights = [];
     for (const u of UPGRADES) {
       const lvl = this.upgradeLevels[u.id] || 0;
@@ -403,6 +407,11 @@ export class Run {
       out.push({ def: pick, name, level: lvl, desc: pick.desc(lvl, this.melee) });
     }
     return out;
+  }
+
+  queueUpgradePick(label, aux = false) {
+    this.pendingLevelUps++;
+    this.pendingPickSources.push({ label, aux });
   }
 
   applyUpgrade(choice) {
@@ -557,7 +566,14 @@ export class Run {
     // --- aim ---
     const target = this._findAimTarget();
     let desiredAim = p.aim;
-    if (input.manualAim && input.aimMag > 0.1) {
+    if (!input.usingTouch && input.mouse?.inside) {
+      // The camera keeps Holt at the canvas centre, so cursor-from-centre is the desired
+      // world direction. Mouse coordinates and innerWidth/Height are both CSS pixels;
+      // renderer DPR scaling therefore cancels out here.
+      const mx = input.mouse.x - window.innerWidth * 0.5;
+      const my = input.mouse.y - window.innerHeight * 0.5;
+      if (mx * mx + my * my > 64) desiredAim = Math.atan2(my, mx);
+    } else if (input.manualAim && input.aimMag > 0.1) {
       desiredAim = Math.atan2(input.aimY, input.aimX);
     } else if (target) {
       if (this.melee) {
@@ -651,7 +667,7 @@ export class Run {
     if (this.melee) {
       if (this.axeEquipped) audio.axeSwing(heavy);
       else audio.swordSwing(heavy ? 1.25 : 1);
-    } else audio.shoot(heavy ? 0.8 : 1);
+    }
     if (heavy) {
       juice.addShake(2.5);
       this.particles.ring(p.x, p.y, 10, 56, 0.3, trailColor(this.trailId, this.time), 3);
@@ -929,9 +945,8 @@ export class Run {
     this.runShards += DROP_SCRAP;
     this.score += DROP_SCRAP * 3;
     // The real prize. Queued through the same path as a level-up so it uses the menu the
-    // player already knows; _dropPicks is what keeps its draw off the daily stream.
-    this._dropPicks++;
-    this.pendingLevelUps++;
+    // player already knows; the queued pick source keeps its draw off the daily stream.
+    this.queueUpgradePick('SUPPLY DROP', true);
 
     this.particles.ring(d.x, d.y, 10, 200, 0.7, SHARD_RGB, 6);
     this.particles.burst(d.x, d.y, 26, 240, SHARD_RGB, { life: 0.9, size: 3.4 });
@@ -963,7 +978,7 @@ export class Run {
     // A clear guarantees one build decision, but does not stack a bonus on top of a
     // level already earned during the round. This keeps Round 1 from opening two menus
     // back-to-back and keeps combat uninterrupted until the safe setup phase.
-    if (this.pendingLevelUps <= 0) this.pendingLevelUps = 1;
+    if (this.pendingLevelUps <= 0) this.queueUpgradePick(`ROUND ${this.wave} REWARD`);
     juice.levelUp();
     this.onWaveClear?.(this.wave, ROUND_BREAK);
     this.onLevelUp?.();
@@ -975,6 +990,7 @@ export class Run {
     this.waveRemaining = this._waveBudget(this.wave);
     this.waveTotal = this.waveRemaining;
     this.waveForcedPending = !!OPENING_ROUNDS[this.wave]?.forced;
+    this.spawnFrontAngle = null;
     this.spawnT = Math.min(this.spawnT, 0.75);
     this.onWaveStart?.(this.wave);
 
@@ -1023,14 +1039,28 @@ export class Run {
         : 1 + Math.floor((this.wave - 1) / 2) + (this.rng.next() < 0.22 ? 2 : 0);
       const forced = opening?.forced && this.waveForcedPending;
       const type = forced ? opening.forced : this._pickEnemyType();
-      if (forced) this.waveForcedPending = false;
+      if (forced) {
+        this.waveForcedPending = false;
+        this.onThreatReveal?.(type, ENEMIES[type]);
+      }
       const def = ENEMIES[type];
       const requested = forced ? 1 : def.packMin
         ? def.packMin + Math.floor(this.rng.next() * (def.packMax - def.packMin + 1))
         : groupSize;
       const n = Math.min(requested, this.waveRemaining);
       this.waveRemaining -= n;
-      for (let i = 0; i < n; i++) this._spawnEnemy(type, i, n, null, null, this.rng);
+      let frontAngle = null;
+      if (opening?.fronts) {
+        frontAngle = this.rng.angle();
+        if (this.spawnFrontAngle != null) {
+          const delta = Math.abs(((frontAngle - this.spawnFrontAngle + Math.PI * 3) % TAU) - Math.PI);
+          if (delta < 1.05) frontAngle = (frontAngle + Math.PI) % TAU;
+        }
+        this.spawnFrontAngle = frontAngle;
+      }
+      for (let i = 0; i < n; i++) {
+        this._spawnEnemy(type, i, n, null, null, this.rng, frontAngle);
+      }
     }
 
     // Summons, splits and scheduled elites all count as part of the horde: the village
@@ -1055,7 +1085,7 @@ export class Run {
   }
 
   /** Spawn just outside the visible viewport, inside the arena, on walkable ground. */
-  _spawnPos(index, total, rng, spreadRad = 0.55, radius = 14) {
+  _spawnPos(index, total, rng, spreadRad = 0.55, radius = 14, frontAngle = null) {
     const p = this.player;
     const a = this.arena;
     let fx = p.x, fy = p.y, found = false;
@@ -1064,23 +1094,23 @@ export class Run {
     // depends on player position, so fixed consumption keeps the director RNG sequence
     // stable even when different players stand on different streets.
     for (let attempt = 0; attempt < 6; attempt++) {
-      const baseAngle = rng.angle();
+      const rolledAngle = rng.angle();
+      const baseAngle = frontAngle == null
+        ? rolledAngle
+        : frontAngle + (rolledAngle - Math.PI) * 0.06;
       const ang = total > 1 ? baseAngle + (index / total - 0.5) * spreadRad : baseAngle;
       const distRoll = rng.next();
       let dist = 520 + distRoll * 140;
-      // The first three rounds teach through readable pressure, not a long walk across
-      // the town. Spawn just past the viewport edge, then keep the emergence tell.
-      if (OPENING_ROUNDS[this.wave]?.near && this._r) {
-        const ca = Math.abs(Math.cos(ang)) || 1e-4;
-        const sa = Math.abs(Math.sin(ang)) || 1e-4;
-        const edge = Math.min((this._r.viewW / 2) / ca, (this._r.viewH / 2) / sa);
-        dist = edge + 70 + distRoll * 80;
-      }
+      // Early packs rise close enough to become a fight within a few seconds. On a wide
+      // desktop this intentionally means they can emerge on-screen; the 0.42s dirt tell
+      // makes that readable, while mobile still places most fronts just beyond the edge.
+      if (OPENING_ROUNDS[this.wave]?.near) dist = 260 + distRoll * 80;
       let x = clamp(p.x + Math.cos(ang) * dist, a.x + TS * 2, a.x + a.w - TS * 2);
       let y = clamp(p.y + Math.sin(ang) * dist, a.y + TS * 2, a.y + a.h - TS * 2);
       if (!this.world.nearestReachable(x, y, radius, 10)) continue;
       x = this.world._ox; y = this.world._oy;
-      if (!found && Math.hypot(x - p.x, y - p.y) > 300) {
+      const minDist = OPENING_ROUNDS[this.wave]?.near ? 210 : 300;
+      if (!found && Math.hypot(x - p.x, y - p.y) > minDist) {
         fx = x; fy = y; found = true;
       }
     }
@@ -1094,7 +1124,8 @@ export class Run {
   }
 
   /** @param {Rng} rng director spawns pass the wave stream; everything else rngAux. */
-  _spawnEnemy(typeKey, index = 0, total = 1, atX = null, atY = null, rng = this.rngAux) {
+  _spawnEnemy(typeKey, index = 0, total = 1, atX = null, atY = null,
+              rng = this.rngAux, frontAngle = null) {
     const def = ENEMIES[typeKey];
 
     // Every random draw happens up front, unconditionally — before the pool check.
@@ -1111,9 +1142,9 @@ export class Run {
       if (this.world.nearestReachable(atX, atY, def.r, 8)) {
         pos = { x: this.world._ox, y: this.world._oy };
       } else {
-        pos = this._spawnPos(index, total, rng, 0.55, def.r);
+        pos = this._spawnPos(index, total, rng, 0.55, def.r, frontAngle);
       }
-    } else pos = this._spawnPos(index, total, rng, 0.55, def.r);
+    } else pos = this._spawnPos(index, total, rng, 0.55, def.r, frontAngle);
     const shootT = def.shootEvery ? def.shootEvery * (0.5 + rng.next() * 0.7) : 0;
     const phase = rng.angle();
     const groan = rng.next();
@@ -2026,7 +2057,8 @@ export class Run {
         p.xp -= p.xpNext;
         p.level++;
         p.xpNext = xpForLevel(p.level);
-        this.pendingLevelUps += this.mods.doubleUpgrade ? 2 : 1;
+        const picks = this.mods.doubleUpgrade ? 2 : 1;
+        for (let i = 0; i < picks; i++) this.queueUpgradePick(`LEVEL ${p.level}`);
         this.particles.ring(p.x, p.y, 16, 180, 0.7, this.palette.accent, 5);
         audio.levelUp();
         juice.levelUp();
@@ -2373,7 +2405,7 @@ export class Run {
   _drawPropFading(ctx, i, behindPlayer) {
     const p = this.player;
     const fade = !behindPlayer && p.alive && this.world.propCovers(i, p.x, p.y - 22);
-    this.world.drawPropAt(ctx, i, fade ? 0.45 : 1);
+    this.world.drawPropAt(ctx, i, fade ? 0.18 : 1);
   }
 
   _drawEnemy(r, e) {

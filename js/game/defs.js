@@ -37,7 +37,7 @@ export const ENEMIES = {
     // the eye notices fastest. These are cosmetic only — same stats, same behaviour, same
     // tell — so the variety costs the player nothing to read.
     sheets: ['green', 'fresh', 'charred'],
-    r: 14, hp: 13, speed: 52, dmg: 9,
+    r: 14, hp: 13, speed: 68, dmg: 9,
     xp: 1, score: 10, behavior: 'chase', weight: 100, minTime: 0,
     atk: { range: 40, windup: 0.42, recover: 0.34, cool: 0.55, clip: 'slash', reach: 54 },
     desc: 'Fresh. Slow, stupid, and never alone.',
@@ -389,7 +389,7 @@ export const SHOP = [
   { id: 'magnet_start', cat: 'Supplies', name: 'Scrap Hook', cost: 400, desc: '+60% starting pickup radius' },
   { id: 'dash_charge',  cat: 'Supplies', name: 'Reserve Sprint', cost: 900, desc: '+1 sprint charge' },
   { id: 'revive',       cat: 'Supplies', name: 'Adrenaline Shot', cost: 2200,
-    desc: 'Once per night, get back up at 45% health' },
+    desc: 'Once per run, get back up at 45% health' },
 
   // Cosmetics — the lantern you carry, and the light it throws.
   { id: 'trail_toxic', cat: 'Lanterns', name: 'Bile Lantern', cost: 400, desc: 'Sick green light' },

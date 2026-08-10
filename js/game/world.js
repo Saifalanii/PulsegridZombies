@@ -46,7 +46,10 @@ export const TS = TILE_SRC * TILE_SCALE;   // 32 world px per tile
  * unit closes the seam. The cost is half a source pixel of stretch on the trailing edge,
  * invisible at this magnification with smoothing off.
  */
-const BLEED = 2;
+// Centred overscan hides both halves of a seam. Extending only toward the bottom/right
+// leaves every tile's top/left source edge sitting exactly on the visible boundary.
+const BLEED = 4;
+const HALF_BLEED = BLEED / 2;
 
 
 // ------------------------------------------------------------------ atlas
@@ -459,6 +462,7 @@ export class World {
     this.claim = new Uint8Array(this.cols * this.rows);
     this.props = [];
     this.town = townSheet();
+    this._authoredSurface = null;
 
     const markSolid = (gx, gy) => {
       for (let sy = gy * this.mapSub; sy < gy * this.mapSub + this.mapSub; sy++)
@@ -1259,6 +1263,44 @@ export class World {
   // ------------------------------------------------------------ drawing
 
   /**
+   * Assemble the authored village once at native tileset resolution.
+   *
+   * Drawing every tile separately leaves hundreds of independent sampling boundaries.
+   * Even with overscan, nearest-neighbour scaling can choose a different edge texel at
+   * each boundary and the repeated one-pixel changes read as a grid. A single continuous
+   * surface has no internal draw boundaries at all, and reduces the ground pass to one
+   * viewport-sized blit per frame — useful on phones as well as visually cleaner.
+   */
+  _buildAuthoredSurface() {
+    const sheet = this.town;
+    if (!sheet?.complete) return null;
+
+    const S = TOWN_TILE_SRC;
+    const surface = document.createElement('canvas');
+    surface.width = this.gcols * S;
+    surface.height = this.grows * S;
+    const c = surface.getContext('2d');
+    c.imageSmoothingEnabled = false;
+    c.fillStyle = 'rgb(15,24,17)';
+    c.fillRect(0, 0, surface.width, surface.height);
+
+    for (const layer of this.authoredLayers) {
+      for (let gy = 0; gy < this.grows; gy++) {
+        const row = gy * this.gcols;
+        for (let gx = 0; gx < this.gcols; gx++) {
+          const id = layer[row + gx];
+          if (id < 0) continue;
+          c.drawImage(sheet,
+                      (id % TOWN_COLS) * S, ((id / TOWN_COLS) | 0) * S, S, S,
+                      gx * S, gy * S, S, S);
+        }
+      }
+    }
+    this._authoredSurface = surface;
+    return surface;
+  }
+
+  /**
    * Ground plane + decals. Viewport-culled: only the tiles the camera can actually see
    * are blitted, so the cost is bounded by screen area rather than arena area.
    */
@@ -1278,22 +1320,37 @@ export class World {
     if (this.authored) {
       const sheet = this.town;
       const S = TOWN_TILE_SRC;
+      const surface = this._authoredSurface || this._buildAuthoredSurface();
+      if (surface) {
+        const cols = x1 - x0 + 1, rows = y1 - y0 + 1;
+        ctx.drawImage(surface,
+                      x0 * S, y0 * S, cols * S, rows * S,
+                      this.ox + x0 * cellSize, this.oy + y0 * cellSize,
+                      cols * cellSize, rows * cellSize);
+        ctx.imageSmoothingEnabled = prevSmooth;
+        return;
+      }
       // Cover genuinely unpainted editor cells (there are four in the current map) and
       // provide ground behind any source tile with transparent pixels. Without this,
       // those pixels reveal the canvas clear colour as a conspicuous black square.
       ctx.fillStyle = 'rgb(15,24,17)';
-      ctx.fillRect(this.ox + x0 * cellSize, this.oy + y0 * cellSize,
-                   (x1 - x0 + 1) * cellSize + BLEED, (y1 - y0 + 1) * cellSize + BLEED);
+      ctx.fillRect(this.ox + x0 * cellSize - HALF_BLEED,
+                   this.oy + y0 * cellSize - HALF_BLEED,
+                   (x1 - x0 + 1) * cellSize + BLEED,
+                   (y1 - y0 + 1) * cellSize + BLEED);
       if (sheet.complete) {
-        for (let gy = y0; gy <= y1; gy++) {
-          const wy = this.oy + gy * cellSize, row = gy * this.gcols;
-          for (let gx = x0; gx <= x1; gx++) {
-            const wx = this.ox + gx * cellSize;
-            for (const layer of this.authoredLayers) {
+        // Complete a visual layer before drawing the next one. Cell-first drawing lets
+        // the next cell's ground overlap the previous cell's roof or wall at the seam.
+        for (const layer of this.authoredLayers) {
+          for (let gy = y0; gy <= y1; gy++) {
+            const wy = this.oy + gy * cellSize, row = gy * this.gcols;
+            for (let gx = x0; gx <= x1; gx++) {
+              const wx = this.ox + gx * cellSize;
               const id = layer[row + gx];
               if (id < 0) continue;
               ctx.drawImage(sheet, (id % TOWN_COLS) * S, ((id / TOWN_COLS) | 0) * S, S, S,
-                            wx, wy, cellSize + BLEED, cellSize + BLEED);
+                            wx - HALF_BLEED, wy - HALF_BLEED,
+                            cellSize + BLEED, cellSize + BLEED);
             }
           }
         }
@@ -1316,10 +1373,12 @@ export class World {
             // Flat surface (see G_ROAD). Pre-tinted at module load, so this costs a
             // fillRect and nothing else.
             ctx.fillStyle = cell.css;
-            ctx.fillRect(wx, wy, cellSize + BLEED, cellSize + BLEED);
+            ctx.fillRect(wx - HALF_BLEED, wy - HALF_BLEED,
+                         cellSize + BLEED, cellSize + BLEED);
           } else {
             ctx.drawImage(sheet, cell[0] * S, cell[1] * S, S, S,
-                          wx, wy, cellSize + BLEED, cellSize + BLEED);
+                          wx - HALF_BLEED, wy - HALF_BLEED,
+                          cellSize + BLEED, cellSize + BLEED);
           }
         }
       }

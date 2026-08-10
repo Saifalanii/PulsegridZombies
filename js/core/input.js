@@ -5,8 +5,8 @@
 //
 // Judgment call: firing is automatic with auto-aim at the highest-threat target, and the
 // right thumb gets Dash instead of a fire button. A fire button on a bullet-hell auto-
-// shooter is busywork; a dash is a real decision. Manual aim is available in Settings
-// (right side becomes a second stick) for players who want it.
+// shooter is busywork; a dash is a real decision. Desktop players can steer attacks with
+// the cursor while touch keeps auto-aim so the second thumb stays free for movement.
 //
 // Multi-touch is tracked by pointerId, so the two thumbs never steal each other's input.
 
@@ -120,6 +120,7 @@ export class Input {
   _onDown(e) {
     if (e.pointerType === 'touch') this.usingTouch = true;
     if (e.pointerType === 'mouse') {
+      this.usingTouch = false;
       this.mouse.down = true; this.mouse.inside = true;
       this.mouse.x = e.clientX; this.mouse.y = e.clientY;
       this.firing = true;
@@ -150,6 +151,7 @@ export class Input {
 
   _onMove(e) {
     if (e.pointerType === 'mouse') {
+      this.usingTouch = false;
       this.mouse.x = e.clientX; this.mouse.y = e.clientY; this.mouse.inside = true;
       return;
     }
@@ -162,7 +164,12 @@ export class Input {
   }
 
   _onUp(e) {
-    if (e.pointerType === 'mouse') { this.mouse.down = false; this.firing = false; return; }
+    if (e.pointerType === 'mouse') {
+      this.mouse.down = false;
+      this.firing = false;
+      if (e.type === 'pointerleave') this.mouse.inside = false;
+      return;
+    }
     if (this.stick.active && e.pointerId === this.stick.id) {
       this.stick.active = false; this.stick.id = -1;
       this.moveX = this.moveY = this.moveMag = 0;

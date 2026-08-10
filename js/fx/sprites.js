@@ -45,8 +45,8 @@ export const FRAME = 64;
 export const BIG_FRAME = 128;
 
 /**
- * The head crop used for menu portraits (HOLT/MAREN/BRIAR all share the one LPC
- * character, so this is the single face all three survivors draw from — see Portrait
+ * The head crop used for menu portraits (HOLT keeps the same identity across every
+ * loadout, so this is the single face the UI draws — see Portrait
  * in fx/face.js). Down-facing idle, frame 0: row 22 (idle) + 2 (down is the 3rd of
  * up/left/down/right) = row 24, column 0.
  *

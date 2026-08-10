@@ -1,7 +1,7 @@
 {
   "name": "Nightfall Village",
   "short_name": "Nightfall",
-  "description": "Top-down endless zombie survival. Morning never comes; hold the village as long as you can. One deterministic attempt a night.",
+  "description": "Top-down zombie survival in a village that rolls back to dusk. One fixed route each night, unlimited Practice runs.",
   "id": "/nightfall-village/",
   "start_url": ".",
   "scope": ".",
@@ -25,14 +25,14 @@
     {
       "name": "Tonight",
       "short_name": "Tonight",
-      "description": "Go straight out into tonight's seeded village",
+      "description": "Go straight into tonight's fixed route",
       "url": "./?mode=daily",
       "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
     },
     {
       "name": "Practice Night",
       "short_name": "Practice",
-      "description": "Unseeded village, no streak at stake",
+      "description": "Learn the streets with no scrap or streak at stake",
       "url": "./?mode=practice",
       "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
     }

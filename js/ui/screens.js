@@ -5,7 +5,7 @@
 // is the fastest way to lose the 60fps target.
 
 import { save, MILESTONES } from '../core/save.js';
-import { audio, SHOOT_STYLE_IDS, SHOOT_STYLE_LABELS } from '../core/audio.js';
+import { audio } from '../core/audio.js';
 import { juice } from '../fx/juice.js';
 import { SHOP, WEAPONS, STREAK_LOCKED } from '../game/defs.js';
 import { TRAILS } from '../game/palette.js';
@@ -222,6 +222,7 @@ export class UI {
   toast(msg, ms = 2400) {
     const t = $('toast');
     t.textContent = msg;
+    t.classList.toggle('combat', !$('hud').classList.contains('hidden'));
     t.classList.remove('hidden');
     void t.offsetWidth;
     t.classList.add('show');
@@ -262,7 +263,24 @@ export class UI {
 
     click('btn-pause', () => g.pause());
     click('btn-resume', () => g.resume());
-    click('btn-quit', () => g.abandon());
+    click('btn-quit', () => {
+      const btn = $('btn-quit');
+      if (g.run?.cfg?.isDaily && !this._quitArmed) {
+        this._quitArmed = true;
+        btn.textContent = 'TAP AGAIN — END TONIGHT';
+        $('pause-quit-note').textContent = 'Tonight’s one attempt will be spent.';
+        clearTimeout(this._quitTimer);
+        this._quitTimer = setTimeout(() => {
+          this._quitArmed = false;
+          if (btn) btn.textContent = 'ABANDON TONIGHT';
+          const note = $('pause-quit-note');
+          if (note) note.textContent = 'Ending now spends tonight’s attempt. Collected scrap is still banked.';
+        }, 3500);
+        return;
+      }
+      this._quitArmed = false;
+      g.abandon();
+    });
     click('btn-pause-settings', () => { this._settingsReturn = 'pause'; this.show('settings'); });
 
     // After a Daily, "again" can only mean Practice — the attempt is spent. Falling
@@ -333,7 +351,7 @@ export class UI {
     btn.textContent = locked ? 'TONIGHT IS SPENT' : 'GO OUT TONIGHT';
 
     if (!locked) {
-      $('daily-note').textContent = 'Same village and horde. Your Stockpile still applies. One attempt.';
+      $('daily-note').textContent = 'Tonight’s route is fixed. Your Stockpile applies. One attempt.';
     } else if (todayRun) {
       $('daily-note').textContent =
         `Held out ${formatTime(todayRun.time)} · ${todayRun.kills} put down. The next night unlocks in the countdown above.`;
@@ -349,10 +367,15 @@ export class UI {
     flame.classList.toggle('cold', st.streak === 0);
     const sub = $('streak-sub');
     sub.className = 'streak-sub';
-    if (st.playedToday) {
+    if (locked && !todayRun) {
+      sub.textContent = st.streak > 0
+        ? `Tonight ended without a result. The ${st.streak}-night streak cannot be extended.`
+        : 'Tonight ended without a result. No streak was started.';
+      sub.classList.add('bad');
+    } else if (st.playedToday) {
       sub.textContent = `Locked in for today. Come back tomorrow to reach ${st.streak + 1}.`;
     } else if (st.atRisk) {
-      sub.textContent = `Play today or the ${st.streak}-day streak resets to zero.`;
+      sub.textContent = `Play today or the ${st.streak}-day streak ends.`;
       sub.classList.add('warn');
     } else if (st.broken) {
       const lost = save.data.streak;
@@ -397,31 +420,40 @@ export class UI {
   showBrief(cfg) {
     $('brief-mode').textContent = cfg.isDaily ? 'TONIGHT' : 'PRACTICE NIGHT';
     $('brief-date').textContent = cfg.isDaily
-      ? `${cfg.dateKey}  •  SEED ${cfg.seed.toString(16).toUpperCase()}`
-      : 'Unseeded. Does not count toward your streak.';
+      ? `${cfg.dateKey}  •  ONE FIXED ROUTE`
+      : 'The horde and rewards shift each run. Does not count toward your streak.';
 
     if (cfg.mutator) {
       $('brief-mutator').textContent = cfg.mutator.name;
       $('brief-mutator-desc').textContent = cfg.mutator.desc;
     } else {
-      $('brief-mutator').textContent = 'AN ORDINARY NIGHT';
-      $('brief-mutator-desc').textContent = 'Standard rules. Unlimited runs; scrap is banked and your streak is unchanged.';
+      $('brief-mutator').textContent = 'REHEARSAL';
+      $('brief-mutator-desc').textContent = 'Learn the streets and chase a score. Scrap does not cross back from Practice.';
     }
 
     const core = coreFor(save.data.equippedWeapon);
+    const weapon = WEAPONS[save.data.equippedWeapon] || WEAPONS.weapon_machete;
     const trail = TRAILS[save.data.equippedTrail] || TRAILS.trail_cyan;
     $('brief-loadout').innerHTML =
       `<div>SURVIVOR<b>${core.name}</b></div>` +
-      `<div>LANTERN<b>${trail.name}</b></div>` +
-      `<div>SCRAP<b>▣ ${save.data.shards.toLocaleString()}</b></div>`;
+      `<div>WEAPON<b>${weapon.name}</b></div>` +
+      `<div>LANTERN<b>${trail.name}</b></div>`;
 
-    const moveSide = save.data.settings.leftHanded ? 'RIGHT' : 'LEFT';
-    const actionSide = save.data.settings.leftHanded ? 'LEFT' : 'RIGHT';
-    $('brief-controls').innerHTML =
-      `<div><b>${moveSide}</b> drag to move</div>` +
-      `<div><b>${actionSide} TAP</b> sprint</div>` +
-      `<div><b>${actionSide} HOLD</b> heavy attack</div>` +
-      `<div><b>ATTACKS</b> swing on their own</div>`;
+    const touch = matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
+    if (touch) {
+      const moveSide = save.data.settings.leftHanded ? 'RIGHT' : 'LEFT';
+      const actionSide = save.data.settings.leftHanded ? 'LEFT' : 'RIGHT';
+      $('brief-controls').innerHTML =
+        `<div><b>${moveSide} SIDE</b> drag to move</div>` +
+        `<div><b>${actionSide} SIDE</b> tap to sprint · hold for heavy</div>` +
+        `<div><b>AUTO-ATTACK</b> targets the nearest threat</div>`;
+    } else {
+      $('brief-controls').innerHTML =
+        `<div><b>WASD / ARROWS</b> move</div>` +
+        `<div><b>SPACE</b> sprint · <b>E</b> heavy attack</div>` +
+        `<div><b>MOUSE</b> aims · attacks fire automatically</div>`;
+    }
+    $('btn-begin').textContent = cfg.isDaily ? 'START TONIGHT' : 'START PRACTICE';
 
     // The radio only shows up for the real night — that's the one it keeps a log of.
     const rivalBlock = $('brief-rival');
@@ -538,8 +570,8 @@ export class UI {
 
   // ------------------------------------------------------------ level up
 
-  showUpgrades(choices, level, onPick) {
-    $('lvl-n').textContent = level;
+  showUpgrades(choices, label, onPick) {
+    $('lvl-title').textContent = `${label} — TAKE ONE`;
     const wrap = $('upgrade-cards');
     wrap.innerHTML = '';
     choices.forEach((c) => {
@@ -559,7 +591,7 @@ export class UI {
         `</div>`;
       card.addEventListener('click', (e) => {
         e.preventDefault();
-        audio.uiClick();
+        audio.upgradeSelect();
         juice.vibrate(12);
         onPick(c);
       });
@@ -577,6 +609,12 @@ export class UI {
       row('TIME', formatTime(run.time)) +
       row('KILLS', run.kills) +
       row('SCRAP', '▣ ' + Math.round(run.runShards));
+    this._quitArmed = false;
+    clearTimeout(this._quitTimer);
+    $('btn-quit').textContent = run.cfg.isDaily ? 'ABANDON TONIGHT' : 'END PRACTICE';
+    $('pause-quit-note').textContent = run.cfg.isDaily
+      ? 'Ending now spends tonight’s attempt. Collected scrap is still banked.'
+      : 'Practice scores and scrap are not saved when you end early.';
     this.show('pause');
     requestAnimationFrame(() => $('btn-resume')?.focus());
     function row(k, v) { return `<div><span class="k">${k}</span><span class="v">${v}</span></div>`; }
@@ -589,6 +627,7 @@ export class UI {
    *   so the comparisons aren't measured against a best that already includes this run.
    */
   showGameOver(res, streakResult, snapshot = {}) {
+    const abandoned = !!snapshot.abandoned;
     $('go-mode').textContent = res.isDaily ? `TONIGHT — ${res.date}` : 'PRACTICE NIGHT';
     $('go-score').textContent = res.score.toLocaleString();
 
@@ -597,12 +636,16 @@ export class UI {
       (res.isDaily && save.dailyLocked()) ? 'PRACTICE NIGHT' : 'GO OUT AGAIN';
 
     const prevBest = snapshot.priorBest ?? (res.isDaily ? save.data.bestDailyScore : save.data.bestPracticeScore);
-    const isBest = res.score > 0 && res.score >= prevBest;
-    $('go-title').textContent = isBest ? 'NEW PERSONAL BEST' : 'RUN ENDED';
+    const isBest = !abandoned && res.score > 0 && res.score >= prevBest;
+    $('go-title').textContent = abandoned
+      ? (res.isDaily ? 'NIGHT ABANDONED' : 'PRACTICE ENDED')
+      : isBest ? 'NEW PERSONAL BEST' : 'RUN ENDED';
 
     const delta = $('go-delta');
     delta.className = 'score-delta';
-    if (isBest && prevBest > 0) {
+    if (abandoned) {
+      delta.textContent = 'NO SCORE RECORDED';
+    } else if (isBest && prevBest > 0) {
       delta.textContent = `+${(res.score - prevBest).toLocaleString()} OVER YOUR BEST`;
       delta.classList.add('best');
     } else if (prevBest > 0) {
@@ -628,23 +671,32 @@ export class UI {
     cmp.innerHTML = '';
     const yesterday = save.dailyScore(dayOffsetKey(-1));
 
-    cmp.appendChild(cmpRow('Personal best', prevBest || 0, res.score));
-    if (res.isDaily) {
+    if (!abandoned) cmp.appendChild(cmpRow('Personal best', prevBest || 0, res.score));
+    if (!abandoned && res.isDaily) {
       cmp.appendChild(cmpRow('Last night', yesterday ? yesterday.score : null, res.score));
       const bestToday = snapshot.priorToday;
       if (bestToday && bestToday.score !== res.score) {
         cmp.appendChild(cmpRow('Your best tonight', bestToday.score, res.score));
       }
     }
-    cmp.appendChild(cmpRow('Longest held', save.data.bestTime ? formatTime(save.data.bestTime) : null, null, res.timeStr));
+    if (!abandoned) {
+      cmp.appendChild(cmpRow('Longest held', save.data.bestTime ? formatTime(save.data.bestTime) : null, null, res.timeStr));
+    }
 
     $('go-shards').textContent = res.shards.toLocaleString();
+    $('go-shard-label').textContent = res.isDaily ? 'SCRAP BANKED' : 'PRACTICE ONLY — NOT BANKED';
 
     // Streak.
     const sNode = $('go-streak');
     sNode.className = 'streak-result';
     if (!res.isDaily) {
-      sNode.innerHTML = `<span class="note">Practice nights don’t affect your ${save.data.streak}-night streak. Go out for real to extend it.</span>`;
+      sNode.innerHTML = abandoned
+        ? `<span class="note">Ended Practice saves no score or scrap. Streak progress comes from Tonight.</span>`
+        : `<span class="note">Practice saves your best score only. Scrap and streak progress come from Tonight.</span>`;
+    } else if (abandoned) {
+      sNode.classList.add('lost');
+      sNode.innerHTML = `<span class="big">ATTEMPT SPENT</span>` +
+        `<span class="note">Your streak was not extended. Tonight returns at midnight.</span>`;
     } else if (streakResult?.milestone) {
       sNode.classList.add('gain');
       const m = streakResult.milestone;
@@ -661,20 +713,22 @@ export class UI {
       sNode.classList.add('lost');
       sNode.innerHTML = `<span class="big">STREAK RESET</span>You missed a night, so it’s back to 1.` +
         `<span class="note">Streaks only survive if you go out every night.</span>`;
-    } else {
+    } else if (streakResult) {
       sNode.innerHTML = `<span class="big">${save.data.streak}-NIGHT STREAK</span>` +
-        `<span class="note">Already counted tonight. Come back tomorrow to extend it.</span>`;
+        `<span class="note">Night one is logged. Come back tomorrow to extend it.</span>`;
     }
 
     // --- characters ---
     const core = coreFor(save.data.equippedWeapon);
     $('go-core-who').textContent = core.name;
     // A milestone outranks dying: the run ended, but the streak is the story.
-    $('go-core-line').textContent = voice.player(streakResult?.milestone ? 'milestone' : 'death');
+    $('go-core-line').textContent = abandoned
+      ? 'Back inside. Still breathing.'
+      : voice.player(streakResult?.milestone ? 'milestone' : 'death');
     this.portrait('go-core-face', core)?.resize();
 
     const rivalBlock = $('go-rival');
-    if (res.isDaily) {
+    if (res.isDaily && !abandoned) {
       rivalBlock.classList.remove('hidden');
       // The rival's line responds to the streak first, then to the run itself.
       let line;
@@ -726,16 +780,17 @@ export class UI {
     }
     // The standard lantern is always owned; list it so the equip toggle makes sense.
     groups.Lanterns.unshift({ id: 'trail_cyan', cat: 'Lanterns', name: TRAILS.trail_cyan.name, cost: 0, desc: 'Standard issue' });
-    groups.Weapons.unshift({ id: 'weapon_machete', cat: 'Weapons', name: CORES.weapon_machete.name, cost: 0 });
+    groups.Weapons.unshift({ id: 'weapon_machete', cat: 'Weapons', name: WEAPONS.weapon_machete.name, cost: 0 });
 
-    // Weapons and lanterns are people and kit, not line items — swap the generic labels
-    // for names and blurbs.
+    // A weapon changes HOLT's loadout, not the protagonist. Show the equipment itself;
+    // repeating the same portrait under three different names made the stockpile look
+    // like it was selling characters that do not exist in the game art.
     for (const item of groups.Weapons) {
-      const core = CORES[item.id];
-      if (!core) continue;
-      item.name = core.name;
-      item.desc = `<em>${core.blurb}</em><br>${WEAPONS[item.id].desc}`;
-      item.core = core;
+      const loadout = CORES[item.id];
+      const weapon = WEAPONS[item.id];
+      if (!loadout || !weapon) continue;
+      item.name = weapon.name;
+      item.desc = `<em>${loadout.blurb}</em><br>${weapon.desc}`;
     }
     for (const item of groups.Lanterns) {
       if (TRAIL_BLURBS[item.id]) item.desc = TRAIL_BLURBS[item.id];
@@ -812,7 +867,7 @@ export class UI {
       action = el('div', 'shop-action locked-tag', `NEEDS ${prev ? prev.name.toUpperCase() : '—'}`);
     } else {
       const afford = save.data.shards >= item.cost;
-      action = el('button', 'shop-action buy' + (afford ? '' : ' cant'), `◆ ${item.cost.toLocaleString()}`);
+      action = el('button', 'shop-action buy' + (afford ? '' : ' cant'), `▣ ${item.cost.toLocaleString()}`);
       action.addEventListener('click', () => {
         if (!save.spendShards(item.cost)) { this.toast('Not enough scrap.'); audio.uiBack(); return; }
         save.unlock(item.id);
@@ -914,17 +969,6 @@ export class UI {
     addSeg('Quality', 'Lower this if the frame rate dips.', 'quality',
            [['auto', 'AUTO'], ['high', 'HIGH'], ['low', 'LOW']], (v) => g.setQuality(v));
 
-    addSeg('Bow attack sound', 'Used by Maren’s automatic shots. Tap to hear it.',
-           'shootSound', SHOOT_STYLE_IDS.map((id) => [id, SHOOT_STYLE_LABELS[id].toUpperCase()]),
-           (v) => {
-             audio.shootStyle = v;
-             // Audition it immediately — comparing these from memory is hopeless, and
-             // three shots is roughly how it'll actually sound in a burst.
-             audio.shoot();
-             setTimeout(() => audio.shoot(), 130);
-             setTimeout(() => audio.shoot(), 260);
-           }, true);
-
     const b = $('btn-reset');
     if (b) b.textContent = 'ERASE ALL PROGRESS';
     this._resetArmed = false;
@@ -934,13 +978,14 @@ export class UI {
 
   buildRecords() {
     const d = save.data;
+    const score = (value) => value > 0 ? value.toLocaleString() : '—';
     $('records-grid').innerHTML =
-      cell('BEST NIGHT', d.bestDailyScore.toLocaleString()) +
-      cell('BEST PRACTICE', d.bestPracticeScore.toLocaleString()) +
-      cell('LONGEST HELD', formatTime(d.bestTime)) +
+      cell('BEST NIGHT', score(d.bestDailyScore)) +
+      cell('BEST PRACTICE', score(d.bestPracticeScore)) +
+      cell('LONGEST HELD', d.bestTime > 0 ? formatTime(d.bestTime) : '—') +
       cell('CURRENT STREAK', d.streak) +
       cell('BEST STREAK', d.bestStreak) +
-      cell('NIGHTS SURVIVED', d.totalRuns.toLocaleString()) +
+      cell('RUNS PLAYED', d.totalRuns.toLocaleString()) +
       cell('TOTAL PUT DOWN', d.totalKills.toLocaleString()) +
       cell('SCRAP EARNED', '▣ ' + d.totalShardsEarned.toLocaleString());
 

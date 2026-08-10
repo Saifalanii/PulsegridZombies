@@ -342,15 +342,17 @@ h3.sub { font-size: 13px; letter-spacing: 0.2em; color: var(--text-dim); margin-
 
 .banner {
   position: absolute; top: 26%; left: 0; right: 0;
-  text-align: center; font-size: clamp(20px, 6.5vw, 34px); font-weight: 800;
-  letter-spacing: 0.24em; color: #fff;
+  padding-inline: calc(max(var(--safe-l), var(--safe-r)) + 12px);
+  text-align: center; font-size: clamp(15px, 4.6vw, 30px); font-weight: 800;
+  line-height: 1.22; letter-spacing: clamp(0.08em, 0.6vw, 0.18em); color: #fff;
+  white-space: normal; overflow-wrap: anywhere;
   opacity: 0; pointer-events: none;
   text-shadow: 0 0 30px hsl(var(--hue) 100% 60% / 0.9);
 }
 .banner.show { animation: bannerIn 2.1s var(--ease) both; }
 @keyframes bannerIn {
-  0%   { opacity: 0; transform: scale(0.86) translateY(10px); letter-spacing: 0.5em; filter: blur(8px); }
-  18%  { opacity: 1; transform: scale(1); letter-spacing: 0.24em; filter: blur(0); }
+  0%   { opacity: 0; transform: scale(0.86) translateY(10px); letter-spacing: 0.3em; filter: blur(8px); }
+  18%  { opacity: 1; transform: scale(1); letter-spacing: clamp(0.08em, 0.6vw, 0.18em); filter: blur(0); }
   72%  { opacity: 1; }
   100% { opacity: 0; transform: scale(1.06); filter: blur(4px); }
 }
@@ -364,15 +366,33 @@ h3.sub { font-size: 13px; letter-spacing: 0.2em; color: var(--text-dim); margin-
   position: absolute;
   right: calc(var(--safe-r) + 14px);
   bottom: calc(var(--safe-b) + 48px);
-  padding: 7px 10px;
+  width: 86px;
+  min-height: 56px;
+  padding: 9px 10px;
   border: 1px solid rgba(255,255,255,0.16);
-  border-radius: 9px;
+  border-radius: 18px;
   background: rgba(5,9,15,0.74);
   color: var(--text-dim);
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 800;
-  letter-spacing: 0.12em;
+  line-height: 1.35;
+  letter-spacing: 0.08em;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   pointer-events: none;
+}
+.action-status::after {
+  content: 'TAP · HOLD HEAVY';
+  display: block;
+  font-size: 7px;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+@media (hover: hover) and (pointer: fine) {
+  .action-status::after { content: 'SPACE · E HEAVY'; }
 }
 .action-status.ready {
   color: #a8e8ff;
@@ -621,6 +641,10 @@ h3.sub { font-size: 13px; letter-spacing: 0.2em; color: var(--text-dim); margin-
 }
 .pause-stats .k { font-size: 9.5px; letter-spacing: 0.16em; color: #6d8397; }
 .pause-stats .v { font-size: 17px; font-weight: 800; }
+.pause-quit-note {
+  min-height: 28px; margin: -4px 8px 0; text-align: center;
+  color: var(--text-dim); font-size: 11px; line-height: 1.35;
+}
 
 /* ------------------------------------------------------------ game over */
 
@@ -809,6 +833,11 @@ input[type=range]::-moz-range-thumb {
   max-width: 86vw; text-align: center;
 }
 .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+.toast.combat {
+  top: calc(var(--safe-t) + 92px); bottom: auto;
+  transform: translateX(-50%) translateY(-16px);
+}
+.toast.combat.show { transform: translateX(-50%) translateY(0); }
 
 /* ------------------------------------------------------------ a11y */
 
