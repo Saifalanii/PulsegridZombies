@@ -919,6 +919,79 @@ input[type=range]::-moz-range-thumb {
   }
 }
 
+/* Phone HUD: keep the arena readable and let each fact appear in one place only. */
+@media (max-width: 600px) {
+  .hud-top {
+    padding: calc(max(var(--safe-t), 8px) + 8px) calc(var(--safe-r) + 10px) 0 calc(var(--safe-l) + 10px);
+    gap: 4px;
+  }
+  .hud-left, .hud-right { gap: 1px; }
+  .score { font-size: 20px; }
+  .combo { height: 12px; font-size: 9px; }
+  .time { font-size: 16px; }
+  .wave { margin-top: 1px; font-size: 8.5px; letter-spacing: 0.1em; }
+  .tier { margin-top: 1px; font-size: 7.5px; letter-spacing: 0.18em; }
+  .shards, .upgrade-coins { gap: 3px; font-size: 11px; }
+  #btn-pause { width: 36px; height: 36px; min-height: 36px; margin-top: 3px; padding: 0; }
+
+  .objective-chip {
+    top: calc(max(var(--safe-t), 8px) + 65px);
+    max-width: 76vw;
+    padding: 4px 8px;
+    border-radius: 7px;
+    font-size: 7.5px;
+    line-height: 1.25;
+    letter-spacing: 0.09em;
+  }
+  .banner {
+    top: 20%;
+    font-size: 13px;
+    letter-spacing: 0.09em;
+  }
+  .banner.show { animation: bannerInMobile 1.55s var(--ease) both; }
+  @keyframes bannerInMobile {
+    0% { opacity: 0; transform: translateY(6px); }
+    18%, 72% { opacity: 1; transform: translateY(0); }
+    100% { opacity: 0; transform: translateY(-4px); }
+  }
+
+  .hud-bottom {
+    padding: 0 calc(var(--safe-r) + 8px) calc(var(--safe-b) + 8px) calc(var(--safe-l) + 8px);
+    gap: 4px;
+  }
+  .xp-bar { height: 5px; }
+  .hp-bar { height: 10px; }
+  .hp-text, .lvl { font-size: 7px; }
+
+  .action-status {
+    right: calc(var(--safe-r) + 10px);
+    bottom: calc(var(--safe-b) + 34px);
+    width: auto;
+    min-width: 72px;
+    min-height: 30px;
+    padding: 5px 8px;
+    border-radius: 10px;
+    font-size: 8px;
+    line-height: 1.15;
+  }
+  .action-status::after { display: none; }
+  #hud.intermission .action-status { display: none; }
+  #hud.intermission .combo { visibility: hidden; }
+
+  .next-round {
+    bottom: calc(var(--safe-b) + 34px);
+    min-width: 142px;
+    min-height: 38px;
+    padding: 8px 12px;
+    border-radius: 11px;
+    font-size: 9px;
+    letter-spacing: 0.1em;
+  }
+
+  .toast { padding: 8px 11px; font-size: 10px; max-width: 76vw; }
+  .toast.combat { top: calc(max(var(--safe-t), 8px) + 96px); }
+}
+
 /* Landscape phones: the arena is the point, so compress the chrome. */
 @media (max-height: 480px) and (orientation: landscape) {
   .title-block { padding: 6px 0 0; }

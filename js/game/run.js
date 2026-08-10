@@ -2460,22 +2460,27 @@ export class Run {
   _drawServiceGuides(r, frameJuice) {
     if (this.waveState !== 'intermission') return;
     const ctx = r.ctx, dpr = r.dpr;
+    const compact = r.w <= 600;
+    const chipW = compact ? 66 : 84;
+    const chipH = compact ? 22 : 28;
+    const edgeX = chipW / 2 + 6;
+    const edgeBottom = compact ? 132 : 78;
     ctx.save();
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
-    ctx.font = '800 10px system-ui, sans-serif';
+    ctx.font = `800 ${compact ? 8 : 10}px system-ui, sans-serif`;
     for (const s of this.services) {
       if (s.kind === 'radio' && (!this.cfg.isStory || (this.cfg.storyStage || 0) < 3)) continue;
       if (s.kind === 'workshop' && !this.cfg.isStory) continue;
       const pt = r.worldToScreen(s.x, s.y, frameJuice);
-      if (pt.x >= 46 && pt.x <= r.w - 46 && pt.y >= 82 && pt.y <= r.h - 72) continue;
-      const x = clamp(pt.x, 48, r.w - 48);
-      const y = clamp(pt.y, 92, r.h - 78);
+      if (pt.x >= edgeX && pt.x <= r.w - edgeX && pt.y >= 82 && pt.y <= r.h - edgeBottom) continue;
+      const x = clamp(pt.x, edgeX, r.w - edgeX);
+      const y = clamp(pt.y, 82, r.h - edgeBottom);
       ctx.fillStyle = 'rgba(4,9,15,0.9)';
-      ctx.fillRect(x - 42, y - 14, 84, 28);
+      ctx.fillRect(x - chipW / 2, y - chipH / 2, chipW, chipH);
       ctx.strokeStyle = rgba(s.color, 0.85);
-      ctx.strokeRect(x - 42, y - 14, 84, 28);
+      ctx.strokeRect(x - chipW / 2, y - chipH / 2, chipW, chipH);
       ctx.fillStyle = rgba(s.color, 1);
       ctx.fillText(`${s.short}  ${s.label}`, x, y);
     }

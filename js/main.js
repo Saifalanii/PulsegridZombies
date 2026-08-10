@@ -276,7 +276,11 @@ class Game {
     this.run.onLevelUp = () => say('levelUp');
     this.run.onUpgradeCoin = (amount, source) => {
       this.ui.resetHudCache();
-      this.ui.toast(`${source} · +${amount} UPGRADE COIN${amount === 1 ? '' : 'S'}`, 2200);
+      // A cleared round is already reported by the persistent wave readout. Repeating it
+      // as a large toast made intermissions feel like three HUDs stacked on each other.
+      if (!source.startsWith('ROUND ')) {
+        this.ui.toast(`${source} · +${amount} UPGRADE COIN${amount === 1 ? '' : 'S'}`, 1800);
+      }
     };
     this.run.onServiceEnter = (kind) => {
       if (cfg.isStory && kind === 'safehouse' && save.data.story.stage === 0) {
@@ -298,7 +302,6 @@ class Game {
     this.run.onWaveClear = (wave, seconds) => {
       if (cfg.isStory) save.recordStoryWave(wave);
       audio.waveClear();
-      this.ui.banner(`ROUND ${wave} CLEAR — SERVICES OPEN`);
     };
     this.run.onWaveStart = (wave) => {
       this.ui.banner(`ROUND ${wave}`);

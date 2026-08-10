@@ -531,6 +531,7 @@ export class UI {
   updateHud(run) {
     const L = this._last;
     const p = run.player, s = run.stats;
+    this.hud.classList.toggle('intermission', run.waveState === 'intermission');
 
     const score = Math.round(run.score);
     if (score !== L.score) {
