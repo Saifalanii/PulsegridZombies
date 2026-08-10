@@ -236,7 +236,7 @@ export class Run {
     this.player = {
       x: this.world._ox ?? 0, y: this.world._oy ?? 0, vx: 0, vy: 0,
       hp: Math.round(this.stats.maxHp * this.mods.startHpMul),
-      r: 13, aim: Math.PI / 2, fireCd: 0,
+      r: 13, aim: -Math.PI / 2, fireCd: 0,
       dashCd: 0, dashLeft: this.stats.dashCharges, dashT: 0, dashDx: 0, dashDy: 0,
       iframes: 0, shield: 0, shieldT: 0, regenAcc: 0,
       heavyCd: 0, heavyQueued: false, atkHeavy: false,
@@ -566,16 +566,11 @@ export class Run {
     // --- aim ---
     const target = this._findAimTarget();
     let desiredAim = p.aim;
-    if (!input.usingTouch && input.mouse?.inside) {
-      // The camera keeps Holt at the canvas centre, so cursor-from-centre is the desired
-      // world direction. Mouse coordinates and innerWidth/Height are both CSS pixels;
-      // renderer DPR scaling therefore cancels out here.
-      const mx = input.mouse.x - window.innerWidth * 0.5;
-      const my = input.mouse.y - window.innerHeight * 0.5;
-      if (mx * mx + my * my > 64) desiredAim = Math.atan2(my, mx);
-    } else if (input.manualAim && input.aimMag > 0.1) {
+    let autoTracking = false;
+    if (input.manualAim && input.aimMag > 0.1) {
       desiredAim = Math.atan2(input.aimY, input.aimX);
     } else if (target) {
+      autoTracking = true;
       if (this.melee) {
         desiredAim = Math.atan2(target.y - p.y, target.x - p.x);
       } else {
@@ -586,8 +581,15 @@ export class Run {
     } else if (speed > 20) {
       desiredAim = Math.atan2(p.vy, p.vx);
     }
-    let d = ((desiredAim - p.aim + Math.PI * 3) % TAU) - Math.PI;
-    p.aim += d * Math.min(1, dt * 22);
+    if (autoTracking) {
+      // The attack may begin on this very simulation step. Snap to its target before
+      // choosing the directional attack clip; smoothing here made the first swing keep
+      // Holt's old/down-facing animation even when the threat was directly to his right.
+      p.aim = desiredAim;
+    } else {
+      const d = ((desiredAim - p.aim + Math.PI * 3) % TAU) - Math.PI;
+      p.aim += d * Math.min(1, dt * 22);
+    }
 
     // --- attack ---
     //

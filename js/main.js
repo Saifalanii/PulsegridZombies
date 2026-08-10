@@ -246,7 +246,7 @@ class Game {
     voice.setCore(core.id);
     const say = (kind) => this.ui.say(core.name, voice.player(kind), kind);
 
-    this.run.onLevelUp = () => { this._queueLevelUp(); say('levelUp'); };
+    this.run.onLevelUp = () => say('levelUp');
     this.run.onGameOver = () => this._endRun();
     this.run.onTierChange = (tier) => { this.ui.banner(tier.name); say('tierShift'); };
     this.run.onWaveClear = (wave, seconds) => {
@@ -301,12 +301,6 @@ class Game {
     this.ui.banner(cfg.isDaily ? (cfg.mutator?.name || 'TONIGHT') : 'PRACTICE NIGHT');
   }
 
-  _queueLevelUp() {
-    // Deferred: the death of the enemy that dropped the last mote should finish
-    // resolving before the game freezes for a menu.
-    if (this.state === S_PLAYING) this._pendingLevelUpCheck = true;
-  }
-
   _openLevelUp() {
     const run = this.run;
     if (run.pendingLevelUps <= 0) return;
@@ -320,10 +314,13 @@ class Game {
     // PWAs do not always deliver that pointer's eventual release back to the canvas
     // once the overlay has taken over, so explicitly end the gesture at the boundary.
     this.input.reset();
-    this.state = S_LEVELUP;
-    this.ui.setHudVisible(false);
     const pickLabel = run.pendingPickSources[0]?.label || `LEVEL ${run.player.level}`;
+    let picked = false;
     this.ui.showUpgrades(choices, pickLabel, (choice) => {
+      // A fast double-tap can dispatch two click events before the overlay is removed.
+      // One card must always consume exactly one queued reward.
+      if (picked) return;
+      picked = true;
       run.applyUpgrade(choice);
       run.pendingLevelUps--;
       run.pendingPickSources.shift();
@@ -334,8 +331,14 @@ class Game {
       } else {
         this.state = S_PLAYING;
         this.ui.setHudVisible(true);
+        this.acc = 0;
+        this.lastT = performance.now();
       }
     });
+    // Only pause the simulation after the cards exist. If rendering the menu ever fails,
+    // gameplay stays live instead of being stranded in an invisible level-up state.
+    this.state = S_LEVELUP;
+    this.ui.setHudVisible(false);
   }
 
   pause() {
@@ -441,9 +444,12 @@ class Game {
 
       this.ui.updateHud(this.run);
 
-      if (this._pendingLevelUpCheck && this.run.pendingLevelUps > 0 && !this.run.over &&
+      // Upgrade picks are intentionally deferred until the safe round break. Derive the
+      // transition from Run's actual queue rather than a one-shot callback flag: callbacks
+      // can arrive during a fixed update and a missed flag used to leave Practice frozen
+      // at the end of a round with no reliable way to resume.
+      if (this.run.pendingLevelUps > 0 && !this.run.over &&
           this.run.waveState === 'intermission') {
-        this._pendingLevelUpCheck = false;
         this._openLevelUp();
       }
     } else if (this.state === S_OVER && this.run) {

@@ -5,8 +5,8 @@
 //
 // Judgment call: firing is automatic with auto-aim at the highest-threat target, and the
 // right thumb gets Dash instead of a fire button. A fire button on a bullet-hell auto-
-// shooter is busywork; a dash is a real decision. Desktop players can steer attacks with
-// the cursor while touch keeps auto-aim so the second thumb stays free for movement.
+// shooter is busywork; a dash is a real decision. Auto-aim is shared by desktop and touch,
+// so moving the pointer cannot accidentally pull an automatic swing away from its target.
 //
 // Multi-touch is tracked by pointerId, so the two thumbs never steal each other's input.
 

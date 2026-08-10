@@ -582,6 +582,7 @@ h3.sub { font-size: 13px; letter-spacing: 0.2em; color: var(--text-dim); margin-
   border-radius: 14px; padding: 15px 16px;
   cursor: pointer; text-align: left; width: 100%;
   color: var(--text); font: inherit;
+  touch-action: manipulation;
   transition: transform 0.16s var(--ease), border-color 0.2s, box-shadow 0.3s;
   animation: cardIn 0.42s var(--ease) both;
 }

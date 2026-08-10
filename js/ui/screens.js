@@ -451,7 +451,7 @@ export class UI {
       $('brief-controls').innerHTML =
         `<div><b>WASD / ARROWS</b> move</div>` +
         `<div><b>SPACE</b> sprint · <b>E</b> heavy attack</div>` +
-        `<div><b>MOUSE</b> aims · attacks fire automatically</div>`;
+        `<div><b>AUTO-AIM</b> targets the nearest threat</div>`;
     }
     $('btn-begin').textContent = cfg.isDaily ? 'START TONIGHT' : 'START PRACTICE';
 

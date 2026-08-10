@@ -1322,11 +1322,15 @@ export class World {
       const S = TOWN_TILE_SRC;
       const surface = this._authoredSurface || this._buildAuthoredSurface();
       if (surface) {
-        const cols = x1 - x0 + 1, rows = y1 - y0 + 1;
+        // Keep one fixed source/destination origin for the lifetime of the map. Cropping
+        // the cached surface to a changing first visible cell made mobile browsers restart
+        // nearest-neighbour sampling at a new phase whenever x0/y0 changed; that phase
+        // change emphasized tile-edge texels as a faint moving grid. Canvas clips this
+        // single draw to the viewport, so off-screen map pixels are not painted.
         ctx.drawImage(surface,
-                      x0 * S, y0 * S, cols * S, rows * S,
-                      this.ox + x0 * cellSize, this.oy + y0 * cellSize,
-                      cols * cellSize, rows * cellSize);
+                      0, 0, surface.width, surface.height,
+                      this.ox, this.oy,
+                      this.gcols * cellSize, this.grows * cellSize);
         ctx.imageSmoothingEnabled = prevSmooth;
         return;
       }

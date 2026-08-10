@@ -152,7 +152,7 @@ export class Renderer {
    * never disagree.
    */
   worldToScreen(wx, wy, juice, out = {}) {
-    const z = this.scale * juice.zoom;
+    const z = this._displayScale(juice.zoom);
     // Rotate the world offset by juice.rot before scaling — must match begin()'s
     // ctx.rotate(juice.rot) applied before ctx.scale(), or the two paths diverge again
     // the moment shake introduces any rotation.
@@ -164,8 +164,19 @@ export class Renderer {
     return out;
   }
 
+  /** Device-stable world scale, including optional short impact zoom. */
+  _displayScale(impactZoom = 1) {
+    const raw = this.baseScale * this.zoomBias * impactZoom;
+    // The authored village is built from 64-world-pixel cells. On a phone, raw*dpr
+    // commonly makes a cell 97.2 device pixels wide; nearest-neighbour sampling then
+    // gives its first/last texel an uneven width and the repeated edge reads as a grid.
+    // Quantising only to a whole device pixel per cell changes zoom by less than 0.5%
+    // while making every tile edge land on the same stable pixel boundary.
+    return Math.round(raw * this.dpr * 64) / (this.dpr * 64);
+  }
+
   /** Effective world->screen scale, including the slow danger zoom. */
-  get scale() { return this.baseScale * this.zoomBias; }
+  get scale() { return this._displayScale(); }
 
   /** Cheap world-space frustum test, with `pad` world units of slack. */
   inView(wx, wy, pad = 0) {
@@ -235,7 +246,7 @@ export class Renderer {
   _applyWorldTransform(juice) {
     const ctx = this.ctx;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    const z = this.scale * juice.zoom;
+    const z = this._displayScale(juice.zoom);
     const s = z * this.dpr;
     ctx.translate(this.canvas.width / 2, this.canvas.height / 2);
     ctx.rotate(juice.rot);
@@ -448,7 +459,7 @@ export class Renderer {
     const px = p.x * this.dpr, py = p.y * this.dpr;
     // setLight() owns the per-run radius. Reading palette.lightR here bypassed that value,
     // which made FOGBOUND's reduced lantern reach a no-op on every map.
-    const rad = (this.lightR ?? palette.lightR ?? 520) * this.scale * juice.zoom * this.dpr;
+    const rad = (this.lightR ?? palette.lightR ?? 520) * this._displayScale(juice.zoom) * this.dpr;
 
     // The mask and the surround must be the *same* colour or the mask's bounding box
     // becomes visible as a hard-edged square around the survivor. An earlier version

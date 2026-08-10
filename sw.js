@@ -34,7 +34,8 @@
 // v39: the authored village is preassembled into one crisp surface, removing tile gaps.
 // v40-v48: development-only weapon art experiments, removed from the playable build.
 // v49: recovery sweep — coherent loadouts, pack waves, practice economy and mobile UI.
-const CACHE = 'nightfall-v49';
+// v50: deterministic auto-aim, reliable round-reward resume and stable mobile tile scale.
+const CACHE = 'nightfall-v50';
 
 // On localhost the cache-first strategy below happily serves the module you edited
 // thirty seconds ago, and you debug a file the page isn't running. Development gets
