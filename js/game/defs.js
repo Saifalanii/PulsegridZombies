@@ -136,7 +136,7 @@ export const ENEMIES = {
   // Torn loose from the Butcher; never rolled by the director.
   thrall: {
     name: 'Thrall', sheet: 'green', scale: 0.85, filter: 'brightness(0.8) hue-rotate(180deg)',
-    r: 14, hp: 105, speed: 0, dmg: 14,
+    r: 14, hp: 60, speed: 0, dmg: 12,
     xp: 6, score: 70, behavior: 'orbitParent', weight: 0, minTime: 0,
     orbitDist: 96, orbitRate: 1.4,
     atk: { range: 38, windup: 0.35, recover: 0.3, cool: 0.5, clip: 'slash', reach: 50 },
@@ -164,7 +164,7 @@ export const ENEMIES = {
   // shape — chip it down, then deal with what came off it before you can hurt it again.
   butcher: {
     name: 'THE BUTCHER', sheet: 'rotting', scale: 2.7, filter: 'contrast(1.2) brightness(0.95)',
-    r: 40, hp: 980, speed: 58, dmg: 24,
+    r: 40, hp: 620, speed: 58, dmg: 20,
     xp: 55, score: 900, behavior: 'chase', weight: 0, minTime: 0,
     elite: true, miniboss: true,
     atk: { range: 78, windup: 0.85, recover: 0.6, cool: 0.85, clip: 'slash', reach: 108, knock: 600 },
@@ -172,9 +172,9 @@ export const ENEMIES = {
     splitAt: 0.5, segment: 'thrall', segmentCount: 3,
     // Damage taken while its Thralls are still alive. Low enough to make ignoring them
     // a losing play, not so low it feels like a scripted wait.
-    shieldedDamageMul: 0.15,
+    shieldedDamageMul: 0.35,
     // Telegraphed ground slam, on a slower cycle than its swings.
-    sweepEvery: 5.5, sweepWindup: 1.0, sweepRadius: 210, sweepDmg: 34,
+    sweepEvery: 6.0, sweepWindup: 1.2, sweepRadius: 170, sweepDmg: 24,
     desc: 'It kept the apron.',
   },
 };
@@ -226,12 +226,13 @@ export const WEAPONS = {
     // `thrust`, not `shoot` — the bow draw only exists on player_hero_alt.png's row 4-7
     // block (LPC's "thrust" slot), not on the dedicated 13-frame "shoot" rows, which are
     // body-only on both player sheets. See PLAYER_SHEET_BOW's note in run.js. The clip's
-    // own fps (12) times its frame count (8) is 0.667s, which is exactly 1/rate below —
-    // the draw finishes right as the next shot is due, with no stretch needed.
+    // own fps is stretched by Run._startAttack to show a deliberate draw and release.
+    // The pause between arrows is intentional counterplay: range should buy safety, not
+    // erase every enemy before it can cross the screen.
     clip: 'thrust',
     // Range remains its identity, but its safety is balanced by lower damage and no
     // free pierce. Broadheads now has to earn that line-clearing power.
-    dmg: 28, rate: 1.35, speed: 720, count: 1, spread: 0.02,
+    dmg: 28, rate: 0.78, speed: 720, count: 1, spread: 0.02,
     size: 5, pierce: 0, range: 560, reach: 0, arc: 0, knock: 75,
   },
   weapon_axe: {
@@ -263,9 +264,9 @@ export const UPGRADES = [
     desc: (l) => `+22% damage  (${l}/6)`,
     apply: (s) => { s.dmgMul *= 1.22; } },
 
-  { id: 'rapid',   name: 'Adrenaline',   max: 6, weight: 100, icon: 4,
-    desc: (l) => `+18% attack speed  (${l}/6)`,
-    apply: (s) => { s.rateMul *= 1.18; } },
+  { id: 'rapid',   name: (melee) => melee ? 'Adrenaline' : 'Quick Draw', max: 6, weight: 100, icon: 4,
+    desc: (l, melee) => `${melee ? '+18% attack speed' : '+8% bow draw speed'}  (${l}/6)`,
+    apply: (s, _p, _l, melee) => { s.rateMul *= melee ? 1.18 : 1.08; } },
 
   { id: 'multi',   name: (melee) => melee ? 'Wide Swing' : 'Split Shot', max: 3, weight: 55, icon: 5,
     desc: (l, melee) => melee

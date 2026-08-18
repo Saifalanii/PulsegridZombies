@@ -80,6 +80,21 @@ const ROUND_BREAK = 18;
 const ROUND_BASE_ENEMIES = 8;
 const ROUND_ENEMIES_STEP = 4;
 
+// Required Chapter One hand-ins. These are deliberately stage-based rather than tied
+// to one exact frame or round: a checkpoint, an old save or a delayed objective must
+// never let the automatic director run away from the story.
+const STORY_GATES = Object.freeze({
+  safehouseFirst: Object.freeze({ target: 'safehouse', message: 'FIND THE SAFEHOUSE — FOLLOW THE BLUE S MARKER' }),
+  radioDrop: Object.freeze({ target: 'drop', message: 'RADIO PART MISSING — FOLLOW THE SUPPLY DROP ARROW' }),
+  radioReturn: Object.freeze({ target: 'safehouse', message: 'RETURN TO THE SAFEHOUSE — INSTALL THE RADIO PART' }),
+  keyReturn: Object.freeze({ target: 'safehouse', message: 'RETURN TO THE SAFEHOUSE — SECURE THE BUTCHER’S KEY' }),
+  station: Object.freeze({ target: 'radio', message: 'FIND THE RADIO STATION — FOLLOW THE PURPLE R MARKER' }),
+  batteryDrop: Object.freeze({ target: 'drop', message: 'BATTERY MISSING — FOLLOW THE SUPPLY DROP ARROW' }),
+  batteryReturn: Object.freeze({ target: 'radio', message: 'RETURN TO THE RADIO STATION — INSTALL THE BATTERY' }),
+  frequency: Object.freeze({ target: 'enemy', message: 'FREQUENCY CODE MISSING — FIND THE MARKED SPITTER' }),
+  frequencyReturn: Object.freeze({ target: 'radio', message: 'RETURN TO THE RADIO STATION — DECODE THE FREQUENCY' }),
+});
+
 // The onboarding curve is authored rather than inferred from elapsed time. On mobile,
 // pressure should come from readable groups and new behaviours, not early HP inflation.
 const OPENING_ROUNDS = {
@@ -89,7 +104,9 @@ const OPENING_ROUNDS = {
   2: { budget: 16, interval: 2.30, group: 4, near: true, fronts: true, types: ['shambler', 'stalker'], forced: 'stalker' },
   3: { budget: 18, interval: 2.05, group: 4, near: true, fronts: true, types: ['shambler', 'stalker', 'runner'], forced: 'runner' },
   4: { budget: 21, interval: 1.85, group: 5, near: true, fronts: true, types: ['shambler', 'stalker', 'runner', 'vermin'], forced: 'vermin' },
-  5: { budget: 24, interval: 1.70, group: 5, near: true, fronts: true, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater'], forced: 'bloater' },
+  // The Butcher is the round's challenge. A smaller escort keeps pressure on without
+  // burying a melee player under a full normal round plus a two-phase boss.
+  5: { budget: 12, interval: 2.20, group: 3, near: true, fronts: true, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater'] },
   6: { budget: 27, interval: 1.55, group: 5, fronts: true, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer'], forced: 'screamer' },
   7: { budget: 30, interval: 1.40, group: 5, fronts: true, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer', 'brute'], forced: 'brute' },
   8: { budget: 33, interval: 1.25, group: 6, fronts: true, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer', 'brute', 'spitter'], forced: 'spitter' },
@@ -475,7 +492,7 @@ export class Run {
     return true;
   }
 
-  /** Resume at a completed story hand-in, never in the middle of a fight. */
+  /** Resume at the latest story checkpoint, never in the middle of a fight. */
   resumeStoryCheckpoint(cp) {
     if (!cp || cp.stage !== (this.cfg.storyStage || 0) || cp.wave < 1) return false;
 
@@ -492,6 +509,12 @@ export class Run {
     this.upgradeCoins = Math.max(0, cp.upgradeCoins || 0);
     this.runShards = Math.max(0, cp.runShards || 0);
     this.player.hp = clamp((cp.hpRatio ?? 1) * this.stats.maxHp, 1, this.stats.maxHp);
+    // A story item is progress too. Without these flags, closing the PWA after picking
+    // up a component silently removed it even though the checkpoint kept Holt's build.
+    this.storyRadioPart = !!cp.storyRadioPart;
+    this.storyButcherKey = !!cp.storyButcherKey;
+    this.storyBattery = !!cp.storyBattery;
+    this.storyFrequencyCode = !!cp.storyFrequencyCode;
 
     this.wave = cp.wave;
     this.waveState = 'intermission';
@@ -503,8 +526,8 @@ export class Run {
     this.spawnT = 0.75;
     this.shopOffers = this.rollUpgradeChoices(3);
 
-    // A checkpoint is a return to the Safehouse. Put Holt on its doorstep so resuming
-    // begins with the saved build and services, not a 30-second navigation chore.
+    // A checkpoint returns Holt to the building that accepts the current item. Resuming
+    // begins with the saved build and objective, not another cross-map navigation chore.
     const checkpointService = this.services.find((s) =>
       s.kind === ((this.cfg.storyStage || 0) >= 4 ? 'radio' : 'safehouse'));
     if (checkpointService) {
@@ -522,14 +545,15 @@ export class Run {
       // Doorstep of the purple storefront south-east of the starting crossing.
       { kind: 'safehouse', label: 'SAFEHOUSE', short: 'S', color: [86, 216, 255],
         x: this.world.ox + 38.5 * cell, y: this.world.oy + 27.5 * cell },
-      // Doorstep of the north-east apartment repurposed as a field clinic.
+      // Doorstep of the labelled Clinic in the updated north-east block.
       { kind: 'clinic', label: 'CLINIC', short: '+', color: HEAL_RGB,
-        x: this.world.ox + 42.5 * cell, y: this.world.oy + 15.3 * cell },
-      // Western municipal building, repurposed as the locked emergency transmitter.
+        x: this.world.ox + 64.5 * cell, y: this.world.oy + 9.4 * cell },
+      // The fenced utility compound immediately west of the Workshop. The old map
+      // coordinate landed in an empty lawn after the town artwork was replaced.
       { kind: 'radio', label: 'RADIO STATION', short: 'R', color: [194, 132, 255],
-        x: this.world.ox + 25.5 * cell, y: this.world.oy + 14.5 * cell },
+        x: this.world.ox + 17.5 * cell, y: this.world.oy + 10.2 * cell },
       { kind: 'workshop', label: 'WORKSHOP', short: 'W', color: [255, 190, 86],
-        x: this.world.ox + 33.5 * cell, y: this.world.oy + 23.5 * cell },
+        x: this.world.ox + 28.2 * cell, y: this.world.oy + 7.4 * cell },
     ] : [
       { kind: 'safehouse', label: 'SAFEHOUSE', short: 'S', color: [86, 216, 255],
         x: this.player.x + 300, y: this.player.y + 250 },
@@ -1166,30 +1190,31 @@ export class Run {
     this.onWaveClear?.(this.wave, ROUND_BREAK);
   }
 
+  /** The mandatory story action currently preventing automatic round progression. */
+  storyGate() {
+    if (!this.cfg.isStory) return null;
+    const stage = this.cfg.storyStage || 0;
+    if (stage === 0 && this.wave >= 1) return STORY_GATES.safehouseFirst;
+    if (stage === 1 && this.wave >= 3) {
+      return this.storyRadioPart ? STORY_GATES.radioReturn : STORY_GATES.radioDrop;
+    }
+    if (stage === 2 && this.wave >= 5) return STORY_GATES.keyReturn;
+    if (stage === 3 && this.wave >= 5) return STORY_GATES.station;
+    if (stage === 4 && this.wave >= 7) {
+      return this.storyBattery ? STORY_GATES.batteryReturn : STORY_GATES.batteryDrop;
+    }
+    if (stage === 5 && this.wave >= 8) {
+      return this.storyFrequencyCode ? STORY_GATES.frequencyReturn : STORY_GATES.frequency;
+    }
+    return null;
+  }
+
   startNextWave() {
     if (this.waveState !== 'intermission') return false;
-    if (this.cfg.isStory) {
-      const stage = this.cfg.storyStage || 0;
-      if (this.wave === 3 && stage === 1) {
-        this.onStoryBlocked?.('RADIO PART NOT INSTALLED — RETURN TO THE SAFEHOUSE');
-        return false;
-      }
-      if (this.wave === 5 && stage === 2) {
-        this.onStoryBlocked?.('BUTCHER’S KEY NOT SECURED — RETURN TO THE SAFEHOUSE');
-        return false;
-      }
-      if (this.wave === 5 && stage === 3) {
-        this.onStoryBlocked?.('RADIO STATION LOCKED — FOLLOW THE PURPLE R MARKER');
-        return false;
-      }
-      if (this.wave === 7 && stage === 4) {
-        this.onStoryBlocked?.('BATTERY NOT INSTALLED — RETURN TO THE RADIO STATION');
-        return false;
-      }
-      if (this.wave === 8 && stage === 5) {
-        this.onStoryBlocked?.('FREQUENCY NOT DECODED — RETURN TO THE RADIO STATION');
-        return false;
-      }
+    const gate = this.storyGate();
+    if (gate) {
+      this.onStoryBlocked?.(gate.message);
+      return false;
     }
     this._startWave();
     return true;
@@ -1228,15 +1253,11 @@ export class Run {
     const m = this.mods;
 
     if (this.waveState === 'intermission') {
-      // Round 3 is a physical hand-in, not optional flavour. Hold the break until the
-      // recovered component is installed at the Safehouse receiver.
-      const storyHandIn = this.cfg.isStory &&
-        ((this.wave === 3 && (this.cfg.storyStage || 0) === 1) ||
-         (this.wave === 5 && (this.cfg.storyStage || 0) === 2) ||
-         (this.wave === 5 && (this.cfg.storyStage || 0) === 3) ||
-         (this.wave === 7 && (this.cfg.storyStage || 0) === 4) ||
-         (this.wave === 8 && (this.cfg.storyStage || 0) === 5));
-      if (storyHandIn) {
+      // Mandatory objectives and the completed chapter have no countdown. Story time is
+      // player-controlled; KEEP SURVIVING remains available after the ending.
+      const storyHold = this.storyGate() ||
+        (this.cfg.isStory && (this.cfg.storyStage || 0) >= 6);
+      if (storyHold) {
         this.waveBreakT = Math.max(this.waveBreakT, 1);
         return;
       }
@@ -1456,7 +1477,10 @@ export class Run {
     const e = this._spawnEnemy('butcher', 0, 1, null, null, this.rng);
     if (!e) return;
     const tMin = (this.wave - 1) * 35 / 60;
-    e.maxHp = e.hp = def.hp * (1 + tMin * 0.42) * this.mods.enemyHp;
+    // Boss HP has its own restrained curve. The regular enemy curve made the first
+    // Butcher arrive with almost twice its listed health, turning the sword fight into
+    // a long damage check rather than a readable duel.
+    e.maxHp = e.hp = def.hp * (1 + tMin * 0.18) * this.mods.enemyHp;
     e.spawnT = 1.6;                    // long telegraph — this is meant to be an event
     this.eliteAlive++;
     this.particles.ring(e.x, e.y, 40, 420, 1.4, BLOOD_RGB, 8);
@@ -1509,15 +1533,16 @@ export class Run {
         if (dx0 * dx0 + dy0 * dy0 < 480 * 480) audio.groan(e.elite ? 0.55 : 1);
       }
 
-      // An ordinary final straggler gets a limited time to route in from off-screen.
-      // This catches disconnected-looking detours that technically make enough progress
-      // to evade the stationary watchdog below but still leave the player waiting.
-      const huntEligible = this.waveRemaining <= 0 && pool.active <= 5 &&
-        !e.elite && !def.miniboss && def.behavior !== 'orbitParent' &&
-        def.behavior !== 'standoff' && def.behavior !== 'circle';
-      if (huntEligible && this._r && !this._r.inView(e.x, e.y, 80)) {
+      // Once the director has no more bodies scheduled, every independent survivor must
+      // come to the player. The old rule excluded ranged, circling, elite and miniboss
+      // enemies, which allowed a final Screamer/Spitter (or a boss behind bad geometry)
+      // to hold a round open forever. Only a tethered thrall is excluded; its parent owns
+      // its movement and an orphan is converted below.
+      const finalHunt = this.waveRemaining <= 0 && pool.active <= 5 &&
+                        def.behavior !== 'orbitParent';
+      if (finalHunt && this._r && !this._r.inView(e.x, e.y, 80)) {
         e.huntT += dt;
-        if (e.huntT >= 7) {
+        if (e.huntT >= 6) {
           this._relocateStuckEnemy(e);
           continue;
         }
@@ -1526,10 +1551,8 @@ export class Run {
       const dx = p.x - e.x, dy = p.y - e.y;
       const d = Math.hypot(dx, dy) || 1;
       let nx = dx / d, ny = dy / d;
-      // The final ordinary stragglers close the distance more decisively. Bosses keep
-      // their authored timings and thralls stay tethered to their parent.
-      const huntBoost = this.waveRemaining <= 0 && pool.active <= 5 &&
-                        !e.elite && !def.miniboss && def.behavior !== 'orbitParent' ? 1.28 : 1;
+      // A last body closes decisively instead of making the player cross the whole city.
+      const huntBoost = finalHunt ? 1.28 : 1;
       const speed = def.speed * e.speedScale * huntBoost;
 
       // Steer down the flow field — the path around walls — instead of straight at the
@@ -1537,7 +1560,7 @@ export class Run {
       // radius and need the true bearing for their own maths. flowDir returns null when
       // the body is off the field or already on the survivor's tile, so close-up facing
       // and attack aiming still use the direct vector.
-      if (def.behavior !== 'circle' && def.behavior !== 'standoff') {
+      if (finalHunt || (def.behavior !== 'circle' && def.behavior !== 'standoff')) {
         const fd = this.world.flowDir(e.x, e.y);
         if (fd) { nx = fd[0]; ny = fd[1]; }
       }
@@ -1613,10 +1636,20 @@ export class Run {
         nx = rx; ny = ry;
       }
 
-      switch (def.behavior) {
+      // Distance-keeping is interesting in a pack, but absurd as the final objective:
+      // during cleanup Screamers and Spitters route all the way into combat like a chase
+      // enemy. Their attacks and special calls still run normally once they are nearby.
+      const activeBehavior = finalHunt &&
+        (def.behavior === 'circle' || def.behavior === 'standoff') ? 'chase' : def.behavior;
+      switch (activeBehavior) {
         case 'chase':
           e.vx = damp(e.vx, nx * speed, 4, dt);
           e.vy = damp(e.vy, ny * speed, 4, dt);
+          // Cleanup changes only locomotion. Ranged/calling enemies keep the attack that
+          // defines them while they close, so recovery never turns them into Shamblers.
+          if (def.behavior === 'circle') this._call(e, dt, def);
+          else if (def.behavior === 'standoff')
+            this._enemySpit(e, dt, def, nx, ny, def.burst || 1);
           break;
 
         case 'weave': {
@@ -1768,10 +1801,8 @@ export class Run {
             e.lastX = e.x; e.lastY = e.y; e.sampleT = 0;
 
             // Detours remain the first response. Relocation is only a last-resort for an
-            // ordinary straggler that has spent six seconds grinding outside the view.
-            if (e.stuckT >= 6 && this.waveRemaining <= 0 && pool.active <= 5 &&
-                !e.elite && !def.miniboss && def.behavior !== 'orbitParent' &&
-                def.behavior !== 'standoff' && def.behavior !== 'circle' &&
+            // final body that has spent six seconds grinding outside the view.
+            if (e.stuckT >= 6 && finalHunt &&
                 this._r && !this._r.inView(e.x, e.y, 120)) {
               this._relocateStuckEnemy(e);
             }
@@ -2009,10 +2040,21 @@ export class Run {
       return true;
     }
     // A hit that doesn't kill still interrupts a wind-up, so a well-timed swing can
-    // cancel an incoming one. That is the closest this game gets to a parry.
-    if (e.atkState === A_WINDUP && effective > e.maxHp * 0.12) {
+    // cancel an incoming one. Bosses use a fixed ceiling so the sword's heavy attack
+    // remains a real parry instead of becoming invalid just because their HP is large.
+    const staggerThreshold = def.miniboss ? Math.min(e.maxHp * 0.12, 60) : e.maxHp * 0.12;
+    if (e.atkState === A_WINDUP && effective >= staggerThreshold) {
       e.atkState = A_NONE;
       e.atkCd = def.atk ? def.atk.cool * 0.6 : 0.3;
+    }
+    // The same committed heavy swing can stop the Butcher's ground slam. It cannot do
+    // so through the Thrall shield, keeping the second phase's target priority intact.
+    if (def.miniboss && e.state === 9 && effective >= staggerThreshold) {
+      e.state = 0;
+      e.stateT = 0;
+      e.sweepT = def.sweepEvery * 0.7;
+      this.particles.ring(e.x, e.y, e.r * 1.5, e.r * 0.8, 0.3, this.palette.accent, 4);
+      juice.addShake(5);
     }
     if (playImpact) audio.hit();
     juice.smallHit();
@@ -2365,7 +2407,7 @@ export class Run {
     this.world.drawGround(r);
     r.drawEdges(this.palette, this.arena);
     if (window.SHOW_COLLISION) this._drawCollisionDebug(r);
-    this._drawServices(r);
+    this._drawServiceGround(r);
 
     // Lantern spill on the ground, under everything that stands on it.
     //
@@ -2394,9 +2436,19 @@ export class Run {
         ctx.stroke();
         ctx.globalAlpha = 1;
       } else {
-        // Ready: a slow breath, enough to notice in peripheral vision, not enough to
-        // compete with the wind-up tells.
-        r.glowCircle(p.x, p.y + 10, 22 + Math.sin(this.time * 3) * 1.5, trail, 1.6, 0.35, 0);
+        // Ready uses the same ground-plane perspective as the recharge sweep. A true
+        // circle reads like an upright bubble around the survivor on a top-down map.
+        const breathe = 1 + Math.sin(this.time * 3) * 0.045;
+        ctx.save();
+        ctx.globalAlpha = 0.48;
+        ctx.strokeStyle = rgba(trail, 0.95);
+        ctx.shadowColor = rgba(trail, 0.8);
+        ctx.shadowBlur = 8;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.ellipse(p.x, p.y + 10, 22 * breathe, 9 * breathe, 0, 0, TAU);
+        ctx.stroke();
+        ctx.restore();
       }
       ctx.globalCompositeOperation = 'source-over';
     }
@@ -2419,11 +2471,15 @@ export class Run {
 
   // Called by Game after the bloom and darkness passes, so navigation UI remains crisp.
   drawFaceOverlay(r, frameJuice) {
+    // Labels are navigation UI, not scenery. Drawing them in the final face pass makes
+    // the ordering absolute: roofs, darkness, bloom, particles and characters have all
+    // finished before the label is painted. The ground ring remains in the world pass.
+    this._drawServiceLabels(r, frameJuice);
     this._drawHuntMarkers(r);
     this._drawServiceGuides(r, frameJuice);
   }
 
-  _drawServices(r) {
+  _drawServiceGround(r) {
     const ctx = r.ctx;
     ctx.save();
     const open = this.waveState === 'intermission';
@@ -2440,18 +2496,40 @@ export class Run {
       ctx.beginPath();
       ctx.ellipse(s.x, s.y + 4, s.radius, 18, 0, 0, TAU);
       ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    ctx.restore();
+  }
 
-      const w = s.kind === 'safehouse' ? 98 : s.kind === 'radio' ? 112
+  _drawServiceLabels(r, frameJuice) {
+    const ctx = r.ctx, dpr = r.dpr;
+    ctx.save();
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const open = this.waveState === 'intermission';
+    const compact = r.w <= 600;
+    for (const s of this.services) {
+      if (s.kind === 'radio' && (!this.cfg.isStory || (this.cfg.storyStage || 0) < 3)) continue;
+      if (s.kind === 'workshop' && !this.cfg.isStory) continue;
+      const pt = r.worldToScreen(s.x, s.y, frameJuice);
+      // Off-screen destinations already have an edge guide. Do not pin their world label
+      // to the canvas, which is what made SAFEHOUSE appear to follow the survivor.
+      if (pt.x < -80 || pt.x > r.w + 80 || pt.y < -80 || pt.y > r.h + 80) continue;
+      ctx.globalAlpha = open ? 1 : 0.45;
+      const w0 = s.kind === 'safehouse' ? 98 : s.kind === 'radio' ? 112
         : s.kind === 'workshop' ? 96 : 70;
+      const w = compact ? w0 * 0.88 : w0;
+      const h = compact ? 22 : 27;
+      const labelY = pt.y - clamp(38 * r.scale, 30, 48);
       ctx.fillStyle = 'rgba(4,9,15,0.88)';
-      ctx.fillRect(s.x - w / 2, s.y - 48, w, 27);
+      ctx.fillRect(pt.x - w / 2, labelY - h / 2, w, h);
       ctx.strokeStyle = rgba(s.color, 0.72);
-      ctx.strokeRect(s.x - w / 2, s.y - 48, w, 27);
+      ctx.lineWidth = 1;
+      ctx.strokeRect(pt.x - w / 2, labelY - h / 2, w, h);
       ctx.fillStyle = rgba(s.color, 1);
-      ctx.font = '800 11px system-ui, sans-serif';
+      ctx.font = `800 ${compact ? 9 : 11}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'middle';
-      ctx.fillText(s.label, s.x, s.y - 34);
+      ctx.fillText(s.label, pt.x, labelY);
       ctx.globalAlpha = 1;
     }
     ctx.restore();
@@ -2470,9 +2548,13 @@ export class Run {
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.font = `800 ${compact ? 8 : 10}px system-ui, sans-serif`;
+    const requiredTarget = this.storyGate()?.target || null;
     for (const s of this.services) {
       if (s.kind === 'radio' && (!this.cfg.isStory || (this.cfg.storyStage || 0) < 3)) continue;
       if (s.kind === 'workshop' && !this.cfg.isStory) continue;
+      // During a mandatory hand-in, one unambiguous destination is more useful than four
+      // equal edge labels. Nearby optional services remain labelled in the world.
+      if (requiredTarget && requiredTarget !== s.kind) continue;
       const pt = r.worldToScreen(s.x, s.y, frameJuice);
       if (pt.x >= edgeX && pt.x <= r.w - edgeX && pt.y >= 82 && pt.y <= r.h - edgeBottom) continue;
       const x = clamp(pt.x, edgeX, r.w - edgeX);
@@ -2482,7 +2564,7 @@ export class Run {
       ctx.strokeStyle = rgba(s.color, 0.85);
       ctx.strokeRect(x - chipW / 2, y - chipH / 2, chipW, chipH);
       ctx.fillStyle = rgba(s.color, 1);
-      ctx.fillText(`${s.short}  ${s.label}`, x, y);
+      ctx.fillText(requiredTarget === s.kind ? `! ${s.label}` : `${s.short}  ${s.label}`, x, y);
     }
     ctx.restore();
   }

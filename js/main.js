@@ -28,10 +28,10 @@ const STORY_OBJECTIVES = [
   'SURVIVE ROUND 1 · FIND THE SAFEHOUSE',
   'REACH ROUND 3 · RECOVER THE RADIO PART',
   'REACH ROUND 5 · TAKE THE BUTCHER’S KEY',
-  'FIND THE RADIO STATION · USE THE BUTCHER’S KEY',
-  'REACH ROUND 7 · RECOVER A TRANSMITTER BATTERY',
-  'REACH ROUND 8 · TAKE THE SPITTER’S FREQUENCY CODE',
-  'CHAPTER TWO COMPLETE · THE BAND HAS A LOCATION',
+  'FIND THE RADIO STATION · FOLLOW THE PURPLE R MARKER',
+  'SURVIVE TO ROUND 7 · FOLLOW THE BATTERY DROP',
+  'SURVIVE TO ROUND 8 · KILL THE MARKED SPITTER',
+  'CHAPTER ONE COMPLETE · THE SIGNAL COMES FROM BELOW',
 ];
 
 class Game {
@@ -266,6 +266,17 @@ class Game {
         save.saveStoryCheckpoint(checkpoint);
       }
       this.run.resumeStoryCheckpoint(checkpoint);
+      // Checkpoints can contain an item that was recovered but not handed in yet.
+      // Restore the actionable instruction rather than the stage's earlier search text.
+      if (this.run.storyRadioPart) {
+        this.run.storyObjective = 'RETURN TO THE SAFEHOUSE · INSTALL THE RADIO PART';
+      } else if (this.run.storyButcherKey) {
+        this.run.storyObjective = 'RETURN TO THE SAFEHOUSE · SECURE THE BUTCHER’S KEY';
+      } else if (this.run.storyBattery) {
+        this.run.storyObjective = 'RETURN TO THE RADIO STATION · INSTALL THE BATTERY';
+      } else if (this.run.storyFrequencyCode) {
+        this.run.storyObjective = 'RETURN TO THE RADIO STATION · DECODE THE FREQUENCY';
+      }
     }
     this.run.particles.setBudget(this.renderer.quality === 'high' ? 1 : 0.55);
 
@@ -308,11 +319,12 @@ class Game {
       audio.waveStart();
     };
     this.run.onEliteSpawn = () => this.ui.banner('SOMETHING BIG');
-    this.run.onEliteKilled = () => {
+    this.run.onEliteKilled = (def) => {
       say('eliteKill');
-      if (cfg.isStory && this.run.wave >= 5 && save.data.story.stage === 2) {
+      if (cfg.isStory && def === ENEMIES.butcher && this.run.wave >= 5 && save.data.story.stage === 2) {
         this.run.storyButcherKey = true;
         this.run.storyObjective = 'RETURN TO THE SAFEHOUSE · SECURE THE BUTCHER’S KEY';
+        this._saveStoryCheckpoint();
         this.ui.resetHudCache();
         this.ui.say('HOLT', 'A key was wired into it. This goes back to the Safehouse.', 'milestone');
       }
@@ -321,6 +333,7 @@ class Game {
       if (cfg.isStory && save.data.story.stage === 5 && this.run.wave >= 8 && def === ENEMIES.spitter) {
         this.run.storyFrequencyCode = true;
         this.run.storyObjective = 'RETURN TO THE RADIO STATION · DECODE THE FREQUENCY';
+        this._saveStoryCheckpoint();
         this.ui.resetHudCache();
         this.ui.say('HOLT', 'Frequency marks under its jaw. The Radio Station can read them.', 'milestone');
       }
@@ -346,11 +359,13 @@ class Game {
       if (cfg.isStory && save.data.story.stage === 1) {
         this.run.storyRadioPart = true;
         this.run.storyObjective = 'RETURN TO THE SAFEHOUSE · INSTALL THE RADIO PART';
+        this._saveStoryCheckpoint();
         this.ui.resetHudCache();
         this.ui.say('HOLT', 'A radio component. I need to get this back to the Safehouse.', 'milestone');
       } else if (cfg.isStory && save.data.story.stage === 4) {
         this.run.storyBattery = true;
         this.run.storyObjective = 'RETURN TO THE RADIO STATION · INSTALL THE BATTERY';
+        this._saveStoryCheckpoint();
         this.ui.resetHudCache();
         this.ui.say('HOLT', 'Transmitter battery. Heavy, but intact. Back to the station.', 'milestone');
       }
@@ -378,8 +393,11 @@ class Game {
     // village events. The continuous wind/drone graph stays off on phones.
     audio.unlock();
     audio.waveStart();
+    const storyLevel = Math.min(save.data.story.stage + 1, 6);
     this.ui.banner(cfg.isStory
-      ? save.data.story.stage >= 3 ? 'CHAPTER TWO · THE LOCKED FREQUENCY' : 'CHAPTER ONE · THE FIRST SIGNAL'
+      ? save.data.story.stage >= 6
+        ? 'CHAPTER ONE COMPLETE'
+        : `CHAPTER 1 · LEVEL ${storyLevel}`
       : 'QUICK RUN');
   }
 
@@ -406,6 +424,10 @@ class Game {
       upgradeCoins: this.run.upgradeCoins,
       hpRatio: this.run.player.hp / this.run.stats.maxHp,
       runShards: this.run.runShards,
+      storyRadioPart: this.run.storyRadioPart,
+      storyButcherKey: this.run.storyButcherKey,
+      storyBattery: this.run.storyBattery,
+      storyFrequencyCode: this.run.storyFrequencyCode,
     });
   }
 
@@ -437,7 +459,7 @@ class Game {
     if (this.state !== S_SERVICE || !this.run.buyShopUpgrade(choice)) return;
     audio.upgradeSelect();
     juice.vibrate(12);
-    this.ui.showService('safehouse', this.run);
+    this.ui.showService(this.serviceKind || 'safehouse', this.run);
   }
 
   installRadioPart() {
@@ -450,7 +472,7 @@ class Game {
     } else if (stage === 2 && this.run.storyButcherKey) {
       this.run.storyButcherKey = false;
       this._advanceStory('butcher-key', 3, 'THE KEY REMEMBERS',
-        'The frequency etched into the key matches the receiver. A locked building answered from across the village. Chapter One is complete.');
+        'The frequency etched into the key matches the receiver. A locked building answered from across the village. Find the Radio Station.');
     } else if (stage === 3 && this.serviceKind === 'radio') {
       this._advanceStory('radio-station', 4, 'THE LOCKED FREQUENCY',
         'The Butcher’s key opened the transmitter cage. It needs a military battery. The next convoy signal begins at Round 7.');
@@ -461,11 +483,13 @@ class Game {
     } else if (stage === 5 && this.serviceKind === 'radio' && this.run.storyFrequencyCode) {
       this.run.storyFrequencyCode = false;
       this._advanceStory('frequency-code', 6, 'A LOCATION IN THE STATIC',
-        'The Band is not outside the village. The transmission is coming from beneath it. Chapter Two is complete.');
+        'The Band is not outside the village. The transmission is coming from beneath it. Chapter One is complete.');
     } else return;
     this.run.waveBreakT = Math.max(this.run.waveBreakT, 12);
     juice.vibrate([0, 20, 40, 30]);
-    this.ui.showService('safehouse', this.run);
+    // Stay in the building Holt actually used. Redrawing every hand-in as the Safehouse
+    // made the Radio Station appear to teleport away immediately after it was found.
+    this.ui.showService(this.serviceKind || 'safehouse', this.run);
   }
 
   useClinic() {
@@ -727,7 +751,27 @@ function boot() {
   }
 
   if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-    navigator.serviceWorker.register('sw.js').catch((e) => console.warn('[nightfall] sw failed', e));
+    // An installed PWA is the website, not a separately packaged binary. Ask for a fresh
+    // worker on every launch and bypass the browser's HTTP cache for sw.js; when the new
+    // worker has atomically cached its shell and takes control, reload once into it. This
+    // gives an existing home-screen installation the newest deployed build without an
+    // uninstall/reinstall cycle.
+    //
+    // On the very first install there is no controller yet. Claiming that page is not an
+    // update and must not reload it, so `hasController` is promoted once and only later
+    // controller changes trigger the refresh.
+    let hasController = !!navigator.serviceWorker.controller;
+    let refreshing = false;
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (!hasController) { hasController = true; return; }
+      if (refreshing) return;
+      refreshing = true;
+      location.reload();
+    });
+
+    navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' })
+      .then((registration) => registration.update())
+      .catch((e) => console.warn('[nightfall] sw failed', e));
   }
 }
 

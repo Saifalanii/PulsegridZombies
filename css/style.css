@@ -276,11 +276,12 @@ h3.sub { font-size: 13px; letter-spacing: 0.2em; color: var(--text-dim); margin-
 .streak-sub.warn { color: var(--shard); }
 .streak-sub.bad { color: var(--hazard); }
 
-.milestones { display: flex; gap: 8px; }
+.milestones { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
 .milestone {
-  flex: 1; text-align: center; padding: 9px 4px; border-radius: 10px;
+  min-width: 0; text-align: center; padding: 9px 4px; border-radius: 10px;
   background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.07);
   font-size: 10px; letter-spacing: 0.1em; color: #6d8397;
+  overflow-wrap: anywhere;
   transition: all 0.3s var(--ease);
 }
 .milestone .d { display: block; font-size: 15px; font-weight: 800; color: var(--text-dim); }
@@ -442,6 +443,13 @@ h3.sub { font-size: 13px; letter-spacing: 0.2em; color: var(--text-dim); margin-
   box-shadow: 0 0 22px rgba(255,214,92,0.18);
 }
 .next-round:active { transform: translateX(-50%) scale(0.96); }
+.next-round:disabled {
+  color: #82909d;
+  border-color: rgba(150,165,180,0.22);
+  background: rgba(8,13,20,0.76);
+  box-shadow: none;
+  opacity: 0.78;
+}
 .bar {
   position: relative; height: 13px; border-radius: 7px;
   background: rgba(255,255,255,0.07);
@@ -485,7 +493,8 @@ h3.sub { font-size: 13px; letter-spacing: 0.2em; color: var(--text-dim); margin-
   left: 50%; top: 50%;                 /* JS overrides these every frame while visible */
   transform: translate(-50%, calc(-100% - 26px));
   display: flex; align-items: baseline; gap: 8px;
-  max-width: min(78vw, 340px);
+  max-width: min(72vw, 300px);
+  max-height: 76px;
   padding: 8px 14px; border-radius: 11px;
   background: rgba(6, 11, 18, 0.82);
   border: 1px solid var(--panel-line);
@@ -515,6 +524,12 @@ h3.sub { font-size: 13px; letter-spacing: 0.2em; color: var(--text-dim); margin-
 .voice-line {
   font-size: 13.5px; font-weight: 600; line-height: 1.35;
   color: var(--text); letter-spacing: 0.01em;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
 }
 
 /* ------------------------------------------------------------ speech blocks */
@@ -920,7 +935,7 @@ input[type=range]::-moz-range-thumb {
 }
 
 /* Phone HUD: keep the arena readable and let each fact appear in one place only. */
-@media (max-width: 600px) {
+@media (max-width: 600px), (max-height: 600px) {
   .hud-top {
     padding: calc(max(var(--safe-t), 8px) + 8px) calc(var(--safe-r) + 10px) 0 calc(var(--safe-l) + 10px);
     gap: 4px;
@@ -990,14 +1005,54 @@ input[type=range]::-moz-range-thumb {
 
   .toast { padding: 8px 11px; font-size: 10px; max-width: 76vw; }
   .toast.combat { top: calc(max(var(--safe-t), 8px) + 96px); }
+
+  .voice {
+    max-width: min(68vw, 270px);
+    max-height: 60px;
+    gap: 6px;
+    padding: 6px 9px;
+    border-radius: 9px;
+  }
+  .voice-who { font-size: 8px; letter-spacing: 0.14em; }
+  .voice-line { font-size: 11.5px; line-height: 1.25; }
 }
 
 /* Landscape phones: the arena is the point, so compress the chrome. */
 @media (max-height: 480px) and (orientation: landscape) {
+  .hud-top {
+    padding-top: calc(max(var(--safe-t), 4px) + 3px);
+    padding-inline: calc(var(--safe-l) + 7px) calc(var(--safe-r) + 7px);
+  }
+  .score { font-size: 16px; }
+  .time { font-size: 13px; }
+  .wave { font-size: 7.5px; }
+  .tier { display: none; }
+  .shards, .upgrade-coins { font-size: 9px; }
+  #btn-pause { width: 31px; height: 31px; min-height: 31px; }
+  .objective-chip {
+    top: calc(max(var(--safe-t), 4px) + 43px);
+    max-width: 54vw;
+    font-size: 7px;
+  }
+  .action-status { bottom: calc(var(--safe-b) + 27px); }
+  .next-round { bottom: calc(var(--safe-b) + 27px); min-height: 34px; }
+  .voice { max-width: min(46vw, 245px); }
+
   .title-block { padding: 6px 0 0; }
   .logo { font-size: 26px; }
   .tagline { display: none; }
   .scroll { gap: 9px; }
   .btn.big { padding: 13px; min-height: 46px; }
+  .brief-inner, .about-inner, .pause-inner, .service-inner {
+    justify-content: flex-start;
+    overflow-y: auto;
+    padding-top: calc(var(--safe-t) + 10px);
+    padding-bottom: calc(var(--safe-b) + 10px);
+  }
   .brief-inner { gap: 9px; }
+}
+
+@media (max-width: 430px) {
+  .milestones { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .milestone { min-height: 48px; }
 }

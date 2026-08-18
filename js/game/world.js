@@ -182,11 +182,26 @@ const CITY_SRC = 'assets/city/simple-city-32.png';
 // 32px source tiles are enlarged to one 64px world cell. The sheet is 256x704, giving
 // it 176 valid cells (IDs 0-175); the authored map's highest ID is 171.
 const TOWN_SRC = 'assets/maps/town-tiles.png';
+const TOWN_MAP_SRC = 'assets/maps/town.png';
 const TOWN_TILE_SRC = 32;
 const TOWN_COLS = 8;
 // Plain grass from the authored tileset. Used only when the editor export has no tile
 // on any layer for a cell, so an accidental hole cannot reveal the canvas clear colour.
 const TOWN_FALLBACK_TILE = 133;
+
+// Buildings flattened into the current full-map image. Sprite Fusion's collision layer
+// misses some roof rows, so those rows looked walkable and let the survivor stand on top
+// of the tallest buildings. Keeping the visual bounds here gives us two reliable things:
+// a complete solid footprint, and a safe foreground crop from the actual map image (not
+// an atlas tile with an opaque black backing) for proper walk-behind depth.
+const TOWN_BUILDINGS = Object.freeze([
+  { x: 27, y: 4,  w: 6, h: 3 }, // Workshop
+  { x: 63, y: 5,  w: 3, h: 4 }, // Clinic
+  { x: 41, y: 10, w: 9, h: 5 }, // north apartment row
+  { x: 16, y: 15, w: 5, h: 5 }, // west apartment
+  { x: 37, y: 24, w: 3, h: 3 }, // south lone shop
+  { x: 48, y: 24, w: 9, h: 3 }, // south shop row
+]);
 
 // Which tile ids are walkable ground, when the map doesn't say for itself.
 //
@@ -373,6 +388,16 @@ function townSheet() {
   return TOWN;
 }
 
+// The Sprite Fusion export also provides one exact, seamless image of the authored
+// arena. Prefer it when the map manifest names an image: it preserves labels and custom
+// storefront edits that are not safely reconstructible from the deduplicated tile atlas,
+// and one fixed surface cannot develop sampling seams between individual tiles.
+let TOWN_MAP = null;
+function townMapImage() {
+  if (!TOWN_MAP) TOWN_MAP = loadCitySheet(TOWN_MAP_SRC);
+  return TOWN_MAP;
+}
+
 /** Lazily built once, shared process-wide. */
 let ATLAS = null;
 function atlas() {
@@ -391,7 +416,7 @@ function atlas() {
 
 /** Every image file this module can request, for the service worker shell list. */
 export function shellAssets() {
-  return [`./${CITY_SRC}`, `./${CHEST_SRC}`, `./${TOWN_SRC}`, './assets/maps/town.json'];
+  return [`./${CITY_SRC}`, `./${CHEST_SRC}`, `./${TOWN_SRC}`, `./${TOWN_MAP_SRC}`, './assets/maps/town.json'];
 }
 
 // ------------------------------------------------------------------ World
@@ -461,7 +486,8 @@ export class World {
     this.solid = new Uint8Array(this.cols * this.rows);
     this.claim = new Uint8Array(this.cols * this.rows);
     this.props = [];
-    this.town = townSheet();
+    this.townMap = map.image ? townMapImage() : null;
+    this.town = this.townMap ? null : townSheet();
     this._authoredSurface = null;
 
     const markSolid = (gx, gy) => {
@@ -552,19 +578,36 @@ export class World {
     }
     this._openSmallObstacles(marked, W, H);
 
-    // Authored collider tiles are flattened art, not isolated foreground sprites. Many
-    // contain opaque pavement/building backing; replaying them after characters creates
-    // 64px rectangles that hide the player. Keep their collision, but disable this
-    // unsafe visual-occlusion list until the map exports explicit occluder metadata.
-    // Turn each occluder cell into a prop so the run's depth pass draws it over any body
-    // whose feet are above the cell's base — the walk-behind effect. The visual tile is
-    // whatever the top visual layer shows there; a collider cell with no art (a pure
-    // collision mask over empty ground) simply doesn't occlude, which is correct.
+    // Use whole-building crops from the flattened map as foreground props. Replaying
+    // individual collider atlas cells caused the old black-square bug because those
+    // cells include opaque backing. Cropping the exact pixels already used for the map
+    // preserves the picture while allowing the depth pass to hide bodies behind roofs.
+    if (this.townMap && W === 70 && H === 42) {
+      for (const b of TOWN_BUILDINGS) {
+        for (let gy = b.y; gy < b.y + b.h; gy++)
+          for (let gx = b.x; gx < b.x + b.w; gx++) markSolid(gx, gy);
+        this.props.push({
+          x: this.ox + b.x * this.mapCell,
+          y: this.oy + b.y * this.mapCell,
+          w: b.w * this.mapCell,
+          h: b.h * this.mapCell,
+          baseY: this.oy + (b.y + b.h) * this.mapCell,
+          mapCrop: {
+            x: b.x * TOWN_TILE_SRC,
+            y: b.y * TOWN_TILE_SRC,
+            w: b.w * TOWN_TILE_SRC,
+            h: b.h * TOWN_TILE_SRC,
+          },
+        });
+      }
+      this.props.sort((a, b) => a.baseY - b.baseY);
+    }
+
     // Solid border so nothing is pushed off the edge.
     for (let x = 0; x < this.cols; x++) { this.solid[x] = 1; this.solid[(this.rows - 1) * this.cols + x] = 1; }
     for (let y = 0; y < this.rows; y++) { this.solid[y * this.cols] = 1; this.solid[y * this.cols + this.cols - 1] = 1; }
 
-    this._visProps = new Int32Array(1);
+    this._visProps = new Int32Array(Math.max(1, this.props.length));
     this._visCount = 0;
   }
 
@@ -1274,6 +1317,11 @@ export class World {
    * viewport-sized blit per frame — useful on phones as well as visually cleaner.
    */
   _buildAuthoredSurface() {
+    if (this.townMap) {
+      if (!this.townMap.complete) return null;
+      this._authoredSurface = this.townMap;
+      return this.townMap;
+    }
     const sheet = this.town;
     if (!sheet?.complete) return null;
 
@@ -1344,7 +1392,7 @@ export class World {
                    this.oy + y0 * cellSize - HALF_BLEED,
                    (x1 - x0 + 1) * cellSize + BLEED,
                    (y1 - y0 + 1) * cellSize + BLEED);
-      if (sheet.complete) {
+      if (sheet?.complete) {
         // Complete a visual layer before drawing the next one. Cell-first drawing lets
         // the next cell's ground overlap the previous cell's roof or wall at the seam.
         for (const layer of this.authoredLayers) {
@@ -1413,6 +1461,21 @@ export class World {
     const p = this.props[i];
     const prev = ctx.globalAlpha;
     if (alpha !== 1) ctx.globalAlpha = prev * alpha;
+
+    // Authored full-map crop: exact pixels from the ground image, lifted into the depth
+    // pass so a roof can cover (and softly reveal) a survivor walking behind it.
+    if (p.mapCrop) {
+      const sheet = this.townMap;
+      if (sheet?.complete) {
+        const c = p.mapCrop;
+        const prevSmooth = ctx.imageSmoothingEnabled;
+        ctx.imageSmoothingEnabled = false;
+        ctx.drawImage(sheet, c.x, c.y, c.w, c.h, p.x, p.y, p.w, p.h);
+        ctx.imageSmoothingEnabled = prevSmooth;
+      }
+      if (alpha !== 1) ctx.globalAlpha = prev;
+      return;
+    }
 
     // Authored occluder tile — drawn from the town sheet by id. See _loadAuthored.
     if (p.tile != null) {

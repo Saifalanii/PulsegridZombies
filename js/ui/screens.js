@@ -146,12 +146,16 @@ export class UI {
    * @param {number} sy screen-space (css px) y
    */
   positionVoiceNear(sx, sy) {
-    const marginX = 178;   // ~half of .voice's max-width (340px) plus a little air
-    const marginTop = 90;  // bubble height + tail + HUD score/time row it must clear
-    const marginBottom = 70;
+    const box = $('voice');
+    const rect = box.getBoundingClientRect();
+    // Derive the clamp from the bubble that is actually rendered. The old fixed 178px
+    // margin assumed a desktop-sized 340px bubble, so rotating a phone left almost no
+    // valid horizontal range and made every line feel pinned across the arena.
+    const marginX = Math.min(window.innerWidth / 2, rect.width / 2 + 8);
+    const marginTop = Math.min(window.innerHeight / 2, rect.height + 38);
+    const marginBottom = 56;
     const x = clamp(sx, marginX, Math.max(marginX, window.innerWidth - marginX));
     const y = clamp(sy, marginTop, Math.max(marginTop, window.innerHeight - marginBottom));
-    const box = $('voice');
     box.style.left = x + 'px';
     box.style.top = y + 'px';
   }
@@ -323,31 +327,36 @@ export class UI {
       ['SAFEHOUSE', 'Reach the Safehouse after Round 1'],
       ['RADIO PART', 'Reach Round 3 and recover a guarded supply drop'],
       ['BUTCHER’S KEY', 'Reach Round 5 and kill the Butcher'],
-      ['RADIO STATION', 'Use the Butcher’s key at the purple R marker'],
-      ['BATTERY', 'Reach Round 7 and recover the transmitter battery'],
-      ['FREQUENCY', 'Reach Round 8 and take the code from a Spitter'],
+      ['RADIO STATION', 'Follow the purple R marker and use the Butcher’s key'],
+      ['BATTERY', 'Survive to Round 7, then follow the battery supply-drop arrow'],
+      ['FREQUENCY', 'Survive to Round 8 and kill the marked Spitter'],
     ];
-    $('daily-date').textContent = story.stage >= 3 ? 'THE LOCKED FREQUENCY' : 'THE FIRST SIGNAL';
-    $('daily-mutator').textContent = story.stage >= 6 ? 'CHAPTER TWO COMPLETE' : 'CURRENT OBJECTIVE';
-    $('daily-mutator-desc').textContent = story.stage >= 6
+    const complete = story.stage >= objectives.length;
+    const level = Math.min(story.stage + 1, objectives.length);
+    $('story-chapter').textContent = 'CHAPTER ONE';
+    $('daily-date').textContent = complete ? '6 LEVELS COMPLETE' : `LEVEL ${level} OF ${objectives.length}`;
+    $('daily-mutator').textContent = complete
+      ? 'CHAPTER ONE COMPLETE'
+      : `LEVEL ${level} · ${objectives[story.stage][0]}`;
+    $('daily-mutator-desc').textContent = complete
       ? 'The decoded transmission points beneath the village.'
       : objectives[story.stage][1];
     $('daily-best-label').textContent = 'DEEPEST ROUND';
     $('daily-best').textContent = story.highestWave || '—';
-    $('daily-countdown').textContent = `${story.discoveries.length} / 6`;
+    $('daily-countdown').textContent = complete ? '6 / 6' : `${level} / ${objectives.length}`;
     if ($('menu-shards')) $('menu-shards').textContent = save.data.shards.toLocaleString();
     const storyBtn = $('btn-daily');
     storyBtn.disabled = false;
     storyBtn.classList.remove('done');
-    storyBtn.textContent = story.stage >= 6 ? 'RETURN TO THE VILLAGE' : 'CONTINUE THE NIGHT';
-    $('daily-note').textContent = 'Unlimited attempts. Story discoveries and recovered scrap survive every reset.';
+    storyBtn.textContent = complete ? 'RETURN TO THE VILLAGE' : `CONTINUE LEVEL ${level}`;
+    $('daily-note').textContent = 'Unlimited attempts. Cleared levels and recovered scrap survive every reset.';
 
     $('streak-count').textContent = story.stage;
     $('streak-flame').classList.toggle('cold', story.stage === 0);
-    $('streak-sub').textContent = story.stage >= 6
-      ? 'Chapter Two complete. The Band’s location points beneath the village.'
-      : `Next: ${objectives[story.stage][0]}`;
-    document.querySelector('.streak-unit').textContent = 'STORY BEATS FOUND';
+    $('streak-sub').textContent = complete
+      ? 'Chapter One complete. The signal is coming from beneath the village.'
+      : `Current: Level ${level} · ${objectives[story.stage][0]}`;
+    document.querySelector('.streak-unit').textContent = 'LEVELS CLEARED';
 
     const msStory = $('milestones');
     msStory.innerHTML = '';
@@ -451,11 +460,13 @@ export class UI {
   // ------------------------------------------------------------ brief
 
   showBrief(cfg) {
+    const storyLevel = Math.min(save.data.story.stage + 1, 6);
+    const storyComplete = save.data.story.stage >= 6;
     $('brief-mode').textContent = cfg.isStory
-      ? save.data.story.stage >= 3 ? 'CHAPTER TWO' : 'CHAPTER ONE'
+      ? `CHAPTER ONE · ${storyComplete ? 'COMPLETE' : `LEVEL ${storyLevel} OF 6`}`
       : 'QUICK RUN';
     $('brief-date').textContent = cfg.isStory
-      ? `${save.data.story.stage >= 3 ? 'THE LOCKED FREQUENCY' : 'THE FIRST SIGNAL'} · DISCOVERIES SURVIVE THE RESET`
+      ? 'THE FIRST SIGNAL · PROGRESS SURVIVES THE RESET'
       : 'An unlimited sandbox. Score and scrap do not enter the story.';
 
     if (cfg.mutator) {
@@ -467,9 +478,9 @@ export class UI {
         'Survive Round 1, then find the Safehouse.',
         'Reach Round 3, then recover a guarded supply drop and inspect its radio component.',
         'Reach Round 5 and take the key from the Butcher.',
-        'Find the Radio Station and use the Butcher’s key.',
-        'Reach Round 7 and recover a transmitter battery from the supply convoy.',
-        'Reach Round 8, kill a Spitter carrying the frequency code, and return it.',
+        'Follow the purple R marker to the Radio Station and use the Butcher’s key.',
+        'Survive to Round 7, then follow the supply-drop arrow to its battery.',
+        'Survive to Round 8, kill the marked Spitter, then return its code to the Radio Station.',
         'The decoded signal is coming from beneath the village.',
       ];
       $('brief-mutator-desc').textContent = cfg.isStory
@@ -608,7 +619,13 @@ export class UI {
       node.classList.toggle('hidden', !objective);
       L.objective = objective;
     }
-    $('btn-next-round').classList.toggle('hidden', run.waveState !== 'intermission');
+    const nextRound = $('btn-next-round');
+    const storyGate = run.storyGate?.() || null;
+    const chapterComplete = run.cfg.isStory && (run.cfg.storyStage || 0) >= 6;
+    nextRound.classList.toggle('hidden', run.waveState !== 'intermission');
+    nextRound.disabled = !!storyGate;
+    nextRound.textContent = storyGate ? 'OBJECTIVE REQUIRED'
+      : chapterComplete ? 'KEEP SURVIVING' : 'START NEXT ROUND';
 
     const hpPct = Math.max(0, p.hp / s.maxHp);
     const hpKey = Math.round(hpPct * 100);
@@ -637,7 +654,7 @@ export class UI {
     $('service-kicker').textContent = isRadio ? 'EMERGENCY BAND' : isSafehouse ? 'THE BAND' : 'FIELD MEDIC';
     $('service-title').textContent = isRadio ? 'RADIO STATION' : isSafehouse ? 'SAFEHOUSE' : 'CLINIC';
     $('service-desc').textContent = isRadio
-      ? 'The transmitter crosses the reset. Story equipment must be returned here.'
+      ? 'The emergency transmitter is inside this Radio Station. Return story equipment here.'
       : isSafehouse ? 'Spend run-only coins here. Unspent coins stay with you until this run ends.'
       : 'Patch up before the next horde. Treatment costs one upgrade coin and is available once per round.';
     $('service-coins').textContent = run.upgradeCoins;
@@ -658,7 +675,7 @@ export class UI {
     $('radio-install-panel').classList.toggle('hidden', !canHandInStory);
     if (canHandInStory) {
       $('story-item-name').textContent = canInstallRadio ? 'RADIO COMPONENT'
-        : canSecureKey ? 'BUTCHER’S KEY' : canUnlockStation ? 'LOCKED TRANSMITTER'
+        : canSecureKey ? 'BUTCHER’S KEY' : canUnlockStation ? 'EMERGENCY TRANSMITTER'
         : canInstallBattery ? 'TRANSMITTER BATTERY' : 'FREQUENCY CODE';
       $('btn-install-radio').textContent = canInstallRadio ? 'INSTALL RADIO PART'
         : canSecureKey ? 'SECURE THE KEY' : canUnlockStation ? 'USE BUTCHER’S KEY'
@@ -734,7 +751,7 @@ export class UI {
     clearTimeout(this._quitTimer);
     $('btn-quit').textContent = run.cfg.isStory ? 'RETURN TO SAFEHOUSE' : 'END QUICK RUN';
     $('pause-quit-note').textContent = run.cfg.isStory
-      ? 'Story discoveries and collected scrap remain saved.'
+      ? 'Cleared levels, recovered story items and collected scrap remain saved.'
       : 'Quick Run scores and scrap are not saved when ended early.';
     this.show('pause');
     requestAnimationFrame(() => $('btn-resume')?.focus());

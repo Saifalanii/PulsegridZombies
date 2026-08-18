@@ -36,7 +36,15 @@
 // v49: recovery sweep — coherent loadouts, pack waves, practice economy and mobile UI.
 // v50: deterministic auto-aim, reliable round-reward resume and stable mobile tile scale.
 // v51: physical Safehouse and Clinic, run-only upgrade coins and skippable service breaks.
-const CACHE = 'nightfall-v59';
+// v61: final-enemy recovery now includes ranged/elites, roof footprints are sealed and
+// the survivor's ready ring matches the ground-plane recharge ellipse.
+// v62: service labels render above the new roof-occlusion layer.
+// v63: the Hunting Bow uses a slower draw cadence and gentler speed upgrades.
+// v64: service labels moved to the absolute final overlay pass.
+// v65: overlay labels are anchored through the camera's world-to-screen transform.
+// v66: desktop canvas presentation is compositor-synchronised to prevent tearing/flicker.
+// v67: installed PWAs actively discover and reload into newly deployed builds.
+const CACHE = 'nightfall-v67';
 
 // On localhost the cache-first strategy below happily serves the module you edited
 // thirty seconds ago, and you debug a file the page isn't running. Development gets
@@ -107,6 +115,7 @@ const SHELL = [
   './assets/city/chest.png',
   // The authored map and its tileset — the world is loaded from these now.
   './assets/maps/town-tiles.png',
+  './assets/maps/town.png',
   './assets/maps/town.json',
 
   // The sword swings are small (170KB each) and they are combat feedback, so they do

@@ -63,7 +63,13 @@ const PIXEL_BUDGET = 1_150_000;
 export class Renderer {
   constructor(canvas) {
     this.canvas = canvas;
-    this.ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+    // Keep presentation synchronized with the browser compositor. The low-latency
+    // `desynchronized` hint can expose a partially presented frame on desktop Chromium,
+    // and this renderer then samples that same live canvas for bloom before presenting
+    // it again. The result is tearing/brightness flicker on PC while mobile Safari (which
+    // commonly ignores the hint) appears stable. An opaque synchronized canvas still
+    // avoids transparency compositing without sacrificing complete-frame presentation.
+    this.ctx = canvas.getContext('2d', { alpha: false });
 
     // brightCanvas holds the squared bright pass; bloomCanvas the blurred copy of it;
     // chromaCanvas the per-channel offset copies. All quarter-res, so the extra buffer
