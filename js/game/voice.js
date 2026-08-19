@@ -47,7 +47,7 @@ const PLAYER = {
   ],
 
   death: [
-    'The village takes this one.',
+    'The city takes this one.',
     'Ran out of room.',
     'Not far enough.',
     'The street closed in.',
@@ -57,7 +57,7 @@ const PLAYER = {
 
   milestone: [
     'We keep showing up.',
-    'The village forgets. I did not.',
+    'The city forgets. I did not.',
     'Put this one in the log.',
     'Still here. Still counting.',
     'Another piece survived the reset.',
@@ -112,7 +112,7 @@ const RIVAL = {
   dailyStart: [
     'You came back remembering. Good.',
     'The streets reset. The locked doors do not.',
-    'Find what the village failed to erase.',
+    'Find what the city failed to erase.',
     'The emergency band is still open.',
     'Your Safehouse kept what you carried in.',
     'Follow the marked supplies. They were meant for you.',
@@ -127,7 +127,7 @@ const RIVAL = {
 
   milestone: {
     3:  ['Three routes logged. The signal is holding.'],
-    7:  ['Seven nights. The village has started to notice.'],
+    7:  ['Seven nights. The city has started to notice.'],
     14: ['Fourteen nights. The axe cache is open.'],
     30: ['Thirty nights. The loop still remembers you.'],
   },
@@ -147,7 +147,7 @@ const RIVAL = {
   ],
 
   idle: [
-    'The village rolls back when you fall. It always does.',
+    'The city rolls back when you fall. It always does.',
     'The signal crosses the reset. So do you.',
     'The doors remember their keys.',
   ],
@@ -157,7 +157,7 @@ const RIVAL = {
     'Large movement on the street ahead.',
     'It comes apart when hurt. Watch what falls off.',
     'Do not stay inside the slam radius.',
-    'The large one is entering the village.',
+    'The large one is entering the city.',
     'Clear what it sheds before striking again.',
     'This is the part the earlier rounds prepared you for.',
   ],

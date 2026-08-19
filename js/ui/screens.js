@@ -339,7 +339,7 @@ export class UI {
       ? 'CHAPTER ONE COMPLETE'
       : `LEVEL ${level} · ${objectives[story.stage][0]}`;
     $('daily-mutator-desc').textContent = complete
-      ? 'The decoded transmission points beneath the village.'
+      ? 'The decoded transmission points beneath the city.'
       : objectives[story.stage][1];
     $('daily-best-label').textContent = 'DEEPEST ROUND';
     $('daily-best').textContent = story.highestWave || '—';
@@ -348,13 +348,13 @@ export class UI {
     const storyBtn = $('btn-daily');
     storyBtn.disabled = false;
     storyBtn.classList.remove('done');
-    storyBtn.textContent = complete ? 'RETURN TO THE VILLAGE' : `CONTINUE LEVEL ${level}`;
+    storyBtn.textContent = complete ? 'RETURN TO THE CITY' : `CONTINUE LEVEL ${level}`;
     $('daily-note').textContent = 'Unlimited attempts. Cleared levels and recovered scrap survive every reset.';
 
     $('streak-count').textContent = story.stage;
     $('streak-flame').classList.toggle('cold', story.stage === 0);
     $('streak-sub').textContent = complete
-      ? 'Chapter One complete. The signal is coming from beneath the village.'
+      ? 'Chapter One complete. The signal is coming from beneath the city.'
       : `Current: Level ${level} · ${objectives[story.stage][0]}`;
     document.querySelector('.streak-unit').textContent = 'LEVELS CLEARED';
 
@@ -481,7 +481,7 @@ export class UI {
         'Follow the purple R marker to the Radio Station and use the Butcher’s key.',
         'Survive to Round 7, then follow the supply-drop arrow to its battery.',
         'Survive to Round 8, kill the marked Spitter, then return its code to the Radio Station.',
-        'The decoded signal is coming from beneath the village.',
+        'The decoded signal is coming from beneath the city.',
       ];
       $('brief-mutator-desc').textContent = cfg.isStory
         ? objectives[save.data.story.stage]
@@ -571,17 +571,20 @@ export class UI {
     if (t !== L.time) { $('hud-time').textContent = formatTime(run.time); L.time = t; }
 
     const waveSeconds = run.waveState === 'intermission' ? Math.ceil(run.waveBreakT) : -1;
+    const storyGate = run.storyGate?.() || null;
+    const chapterComplete = run.cfg.isStory && (run.cfg.storyStage || 0) >= 6;
     let countedAlive = 0;
     for (let i = 0; i < run.enemies.active; i++) {
       if (run.enemies.items[i].countsForRound) countedAlive++;
     }
     const extraAlive = run.enemies.active - countedAlive;
     const left = run.waveRemaining + countedAlive;
-    const waveKey = `${run.wave}:${run.waveState}:${left}:${extraAlive}:${waveSeconds}`;
+    const breakText = storyGate ? 'OBJECTIVE' : chapterComplete ? 'READY' : `${waveSeconds}s`;
+    const waveKey = `${run.wave}:${run.waveState}:${left}:${extraAlive}:${breakText}`;
     if (waveKey !== L.wave) {
       const alive = run.enemies.active;
       $('hud-wave').textContent = run.waveState === 'intermission'
-        ? `ROUND ${run.wave} CLEAR · ${waveSeconds}s`
+        ? `ROUND ${run.wave} CLEAR · ${breakText}`
         : left > 0
           ? `ROUND ${run.wave} · ${left} LEFT${extraAlive ? ` · +${extraAlive} EXTRA` : ''}`
           : `ROUND ${run.wave} · CLEAR ${extraAlive} EXTRA`;
@@ -620,8 +623,6 @@ export class UI {
       L.objective = objective;
     }
     const nextRound = $('btn-next-round');
-    const storyGate = run.storyGate?.() || null;
-    const chapterComplete = run.cfg.isStory && (run.cfg.storyStage || 0) >= 6;
     nextRound.classList.toggle('hidden', run.waveState !== 'intermission');
     nextRound.disabled = !!storyGate;
     nextRound.textContent = storyGate ? 'OBJECTIVE REQUIRED'
@@ -770,7 +771,7 @@ export class UI {
     $('go-score').textContent = res.score.toLocaleString();
 
     // Label the retry button for what it will actually do (see its click handler).
-    $('btn-again').textContent = res.isStory ? 'RETURN TO THE VILLAGE' : 'QUICK RUN AGAIN';
+    $('btn-again').textContent = res.isStory ? 'RETURN TO THE CITY' : 'QUICK RUN AGAIN';
 
     const prevBest = snapshot.priorBest ?? (res.isDaily ? save.data.bestDailyScore : save.data.bestPracticeScore);
     const isBest = !abandoned && res.score > 0 && res.score >= prevBest;
@@ -1111,7 +1112,7 @@ export class UI {
     };
 
     addToggle('Mute all audio', 'Silences music and effects.', 'muted', (v) => audio.setMuted(v));
-    addSlider('Music volume', 'Run theme and sparse village ambience.', 'musicVolume', 0, 1, 0.05, (v) => audio.setMusicVolume(v));
+    addSlider('Music volume', 'Run theme and sparse city ambience.', 'musicVolume', 0, 1, 0.05, (v) => audio.setMusicVolume(v));
     addSlider('Effects volume', 'Weapons, impacts, pickups.', 'sfxVolume', 0, 1, 0.05, (v) => audio.setSfxVolume(v));
     addSlider('Screen shake', 'Set to zero if motion bothers you.', 'screenShake', 0, 1.5, 0.1, (v) => { juice.shakeScale = v; });
     addToggle('Haptics', 'Vibration on impacts, where supported.', 'haptics', (v) => { juice.haptics = v; });
@@ -1144,11 +1145,11 @@ export class UI {
     hist.innerHTML = '';
     const discoveryCopy = {
       safehouse: ['THE SAFEHOUSE REMEMBERS', 'The locks were changed from inside before Holt arrived.'],
-      'radio-component': ['A RADIO COMPONENT', 'Military frequency, village address, and Holt’s name—written before the first reset.'],
+      'radio-component': ['A RADIO COMPONENT', 'Military frequency, city address, and Holt’s name—written before the first reset.'],
       'butcher-key': ['THE BUTCHER’S KEY', 'A brass key wired into its ribs carries the same frequency mark.'],
       'radio-station': ['THE LOCKED FREQUENCY', 'The Butcher’s key opened the emergency transmitter cage.'],
       'transmitter-battery': ['TRANSMITTER ONLINE', 'A military battery powered the signal through another reset.'],
-      'frequency-code': ['A LOCATION IN THE STATIC', 'The infected frequency points to something beneath the village.'],
+      'frequency-code': ['A LOCATION IN THE STATIC', 'The infected frequency points to something beneath the city.'],
     };
     for (const id of d.story.discoveries) {
       const copy = discoveryCopy[id];

@@ -109,7 +109,7 @@ const OPENING_ROUNDS = {
   5: { budget: 12, interval: 2.20, group: 3, near: true, fronts: true, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater'] },
   6: { budget: 27, interval: 1.55, group: 5, fronts: true, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer'], forced: 'screamer' },
   7: { budget: 30, interval: 1.40, group: 5, fronts: true, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer', 'brute'], forced: 'brute' },
-  8: { budget: 33, interval: 1.25, group: 6, fronts: true, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer', 'brute', 'spitter'], forced: 'spitter' },
+  8: { budget: 27, interval: 1.45, group: 5, fronts: true, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer', 'brute', 'spitter'], forced: 'spitter' },
   9: { budget: 36, interval: 1.15, group: 6, fronts: true, types: ['shambler', 'stalker', 'runner', 'vermin', 'bloater', 'screamer', 'brute', 'spitter', 'lurker'], forced: 'lurker' },
 };
 
@@ -142,6 +142,7 @@ let UID = 1;
 const mkEnemy = () => ({
   uid: 0, def: null, key: '', sheet: '', x: 0, y: 0, vx: 0, vy: 0, hp: 1, maxHp: 1, r: 10,
   flash: 0, state: 0, stateT: 0, shootT: 0, callT: 0,
+  leapX: 0, leapY: 0,
   callsLeft: 0,
   phase: 0, spawnT: 0, elite: false, dmgScale: 1, speedScale: 1,
   split: false, shielded: false, parentUid: 0, sweepT: 0,
@@ -1415,6 +1416,7 @@ export class Run {
     e.key = typeKey;
     e.sheet = def.sheets ? def.sheets[Math.floor(sheetRoll * def.sheets.length)] : def.sheet;
     e.x = pos.x; e.y = pos.y;
+    e.leapX = e.x; e.leapY = e.y;
     e.vx = e.vy = 0;
     e.maxHp = e.hp = def.hp * hpScale;
     e.r = def.r;
@@ -1596,7 +1598,7 @@ export class Run {
         // on the frame the damage is applied — the tell and the hit are the same event.
         playClip(e.anim, def.atk.clip, def.atk.windup + def.atk.recover,
                  dirFromVector(nx, ny));
-        audio.swing(0.8);
+        audio.swing(1.1);
         continue;
       }
 
@@ -1728,19 +1730,41 @@ export class Run {
           if (e.state === 0) {
             e.vx = damp(e.vx, nx * speed, 2.5, dt);
             e.vy = damp(e.vy, ny * speed, 2.5, dt);
-            if (d < def.lungeRange) { e.state = 1; e.stateT = def.windup; }
+            if (d < def.lungeRange) {
+              // Lock a verified landing point when the tell begins. The old leap aimed
+              // with velocity alone, so a wall or map edge could leave a Lurker inside
+              // scenery even though ordinary walking collision was enabled.
+              const travel = this._planLunge(e, def);
+              if (travel > e.r) { e.state = 1; e.stateT = def.windup; }
+              else { e.state = 3; e.stateT = def.restTime * 0.45; }
+            }
           } else if (e.state === 1) {
             e.vx = damp(e.vx, 0, 9, dt);
             e.vy = damp(e.vy, 0, 9, dt);
             if (e.stateT <= 0) {
               e.state = 2; e.stateT = def.lungeTime;
-              e.vx = nx * def.lungeSpeed * this.mods.enemySpeed;
-              e.vy = ny * def.lungeSpeed * this.mods.enemySpeed;
+              e.vx = (e.leapX - e.x) / def.lungeTime;
+              e.vy = (e.leapY - e.y) / def.lungeTime;
               audio.lurkerLunge();
               juice.addShake(2.5);
             }
           } else if (e.state === 2) {
-            if (e.stateT <= 0) { e.state = 3; e.stateT = def.restTime; }
+            if (e.stateT <= 0) {
+              // The target was ray-checked at take-off, so finishing exactly there also
+              // removes small integration/separation drift accumulated in the air.
+              if (!this.world.blocked(e.leapX, e.leapY, e.r * 0.86) &&
+                  this.world.reachable(e.leapX, e.leapY)) {
+                e.x = e.leapX; e.y = e.leapY;
+              }
+              e.vx = e.vy = 0;
+              e.state = 3; e.stateT = def.restTime;
+            } else {
+              // Re-aim only at the committed landing point, never at the moving player.
+              // This cancels separation drift without making the attack home in.
+              const remaining = Math.max(dt, e.stateT);
+              e.vx = (e.leapX - e.x) / remaining;
+              e.vy = (e.leapY - e.y) / remaining;
+            }
           } else {
             e.vx = damp(e.vx, 0, 4, dt);
             e.vy = damp(e.vy, 0, 4, dt);
@@ -1774,7 +1798,10 @@ export class Run {
 
       // Thralls are positioned, not steered — they pass through walls with their parent
       // rather than snagging on a fence and stretching the tether across the street.
-      if (def.behavior === 'orbitParent' || e.state === 2) {
+      // Charges and lunges used to share this bypass through the generic `state === 2`
+      // check. That let Runners cross the map border and Lurkers land inside roofs. They
+      // now use the same swept collision as every other independent body.
+      if (def.behavior === 'orbitParent') {
         e.x += e.vx * dt; e.y += e.vy * dt;
         const a = this.arena;
         e.x = clamp(e.x, a.x + e.r, a.x + a.w - e.r);
@@ -1836,6 +1863,7 @@ export class Run {
   _relocateStuckEnemy(e) {
     const pos = this._huntSpawnPos(e.r);
     e.x = pos.x; e.y = pos.y;
+    e.leapX = e.x; e.leapY = e.y;
     e.vx = e.vy = 0;
     e.lastX = e.x; e.lastY = e.y;
     e.sampleT = e.stuckT = e.huntT = e.detourT = 0;
@@ -1843,6 +1871,39 @@ export class Run {
     e.state = 0; e.stateT = 0;
     e.atkState = A_NONE; e.atkT = 0;
     e.spawnT = 0.42;
+  }
+
+  /**
+   * Commit a Lurker to the furthest safe point along its leap line.
+   * Sampling the entire route prevents tunnelling through thin walls and rejects both
+   * unreachable map islands and the solid area beyond the authored arena.
+   */
+  _planLunge(e, def) {
+    const a = this.arena;
+    const dx = this.player.x - e.x, dy = this.player.y - e.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const nx = dx / length, ny = dy / length;
+    const wanted = Math.min(length, def.lungeSpeed * def.lungeTime * this.mods.enemySpeed);
+    const pad = e.r + 3;
+    const minX = a.x + pad, maxX = a.x + a.w - pad;
+    const minY = a.y + pad, maxY = a.y + a.h - pad;
+    const probeR = e.r * 0.86;
+    const step = Math.max(5, e.r * 0.42);
+    let safeX = e.x, safeY = e.y;
+
+    for (let dist = step; dist <= wanted + 0.001; dist += step) {
+      const along = Math.min(dist, wanted);
+      const x = clamp(e.x + nx * along, minX, maxX);
+      const y = clamp(e.y + ny * along, minY, maxY);
+      if (this.world.blocked(x, y, probeR) || !this.world.reachable(x, y)) break;
+      safeX = x; safeY = y;
+      // Clamping means the next sample would be outside the playable map.
+      if (x === minX || x === maxX || y === minY || y === maxY) break;
+      if (along === wanted) break;
+    }
+
+    e.leapX = safeX; e.leapY = safeY;
+    return Math.hypot(safeX - e.x, safeY - e.y);
   }
 
   /** Reachable position just beyond the current screen edge for a recovered straggler. */
@@ -2003,16 +2064,18 @@ export class Run {
       const a = base + (burst > 1 ? (k / (burst - 1) - 0.5) * 0.34 : 0);
       this._spawnEBullet(e.x + Math.cos(a) * e.r, e.y + Math.sin(a) * e.r,
                          Math.cos(a) * def.bulletSpeed, Math.sin(a) * def.bulletSpeed,
-                         def.bulletDmg * e.dmgScale);
+                         def.bulletDmg * e.dmgScale, def.bulletRange);
     }
     audio.spit();
   }
 
-  _spawnEBullet(x, y, vx, vy, dmg) {
+  _spawnEBullet(x, y, vx, vy, dmg, maxDistance = 210) {
     const b = this.ebullets.spawn();
     if (!b) return;
     b.x = x; b.y = y; b.vx = vx; b.vy = vy;
-    b.life = 5; b.dmg = dmg; b.r = 6; b.rot = Math.atan2(vy, vx);
+    const speed = Math.hypot(vx, vy) || 1;
+    b.life = maxDistance / speed;
+    b.dmg = dmg; b.r = 6; b.rot = Math.atan2(vy, vx);
   }
 
   /** Directional blood. Cosmetic, so Math.random throughout. */
@@ -2938,7 +3001,7 @@ export class Run {
       if (def.behavior === 'lunge' && e.state === 1) {
         const t = 1 - e.stateT / def.windup;
         r.glowCircle(e.x, e.y, e.r + 26 - t * 20, BLOOD_RGB, 2 + t * 2, 1, 0);
-        const dx = this.player.x - e.x, dy = this.player.y - e.y;
+        const dx = e.leapX - e.x, dy = e.leapY - e.y;
         const l = Math.hypot(dx, dy) || 1;
         ctx.globalAlpha = 0.28 + t * 0.42;
         r.glowStreak(e.x + (dx / l) * (e.r + 8 + t * 200), e.y + (dy / l) * (e.r + 8 + t * 200),

@@ -468,11 +468,11 @@ class Game {
     if (stage === 1 && this.run.storyRadioPart) {
       this.run.storyRadioPart = false;
       this._advanceStory('radio-component', 2, 'THE FIRST SIGNAL',
-        'Military frequency. Village address. Holt’s name was written before the first reset. The transmission names the Butcher—and the key inside it.');
+        'Military frequency. City address. Holt’s name was written before the first reset. The transmission names the Butcher—and the key inside it.');
     } else if (stage === 2 && this.run.storyButcherKey) {
       this.run.storyButcherKey = false;
       this._advanceStory('butcher-key', 3, 'THE KEY REMEMBERS',
-        'The frequency etched into the key matches the receiver. A locked building answered from across the village. Find the Radio Station.');
+        'The frequency etched into the key matches the receiver. A locked building answered from across the city. Find the Radio Station.');
     } else if (stage === 3 && this.serviceKind === 'radio') {
       this._advanceStory('radio-station', 4, 'THE LOCKED FREQUENCY',
         'The Butcher’s key opened the transmitter cage. It needs a military battery. The next convoy signal begins at Round 7.');
@@ -483,7 +483,7 @@ class Game {
     } else if (stage === 5 && this.serviceKind === 'radio' && this.run.storyFrequencyCode) {
       this.run.storyFrequencyCode = false;
       this._advanceStory('frequency-code', 6, 'A LOCATION IN THE STATIC',
-        'The Band is not outside the village. The transmission is coming from beneath it. Chapter One is complete.');
+        'The Band is not outside the city. The transmission is coming from beneath it. Chapter One is complete.');
     } else return;
     this.run.waveBreakT = Math.max(this.run.waveBreakT, 12);
     juice.vibrate([0, 20, 40, 30]);

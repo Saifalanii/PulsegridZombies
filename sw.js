@@ -44,7 +44,9 @@
 // v65: overlay labels are anchored through the camera's world-to-screen transform.
 // v66: desktop canvas presentation is compositor-synchronised to prevent tearing/flicker.
 // v67: installed PWAs actively discover and reload into newly deployed builds.
-const CACHE = 'nightfall-v67';
+// v68: honest story-break labels, bounded venom and collision-safe lunges.
+// v69: zombie warnings sit above a trimmed music/ambience bed.
+const CACHE = 'nightfall-v71';
 
 // On localhost the cache-first strategy below happily serves the module you edited
 // thirty seconds ago, and you debug a file the page isn't running. Development gets

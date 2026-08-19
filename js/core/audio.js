@@ -16,6 +16,12 @@ import { clamp } from './math.js';
 
 const ROOT = 55; // A1 — still the tuning centre for the few pitched UI stingers.
 
+// User volume is the top of the music range, not a promise that every music layer runs
+// at unity. The finished track and the procedural night events overlap during a run;
+// trimming both leaves headroom for zombie warnings, which carry gameplay information.
+const TRACK_MIX = 0.72;
+const AMBIENCE_MIX = 0.60;
+
 const midiToFreq = (m) => 440 * Math.pow(2, (m - 69) / 12);
 
 /**
@@ -284,8 +290,10 @@ export class AudioEngine {
   setSfxVolume(v) { this.sfxVol = v; if (this.sfxBus) this.sfxBus.gain.setTargetAtTime(v, this.ctx.currentTime, 0.05); }
   setMusicVolume(v) {
     this.musicVol = v;
-    if (this.musicBus && this._playing) this.musicBus.gain.setTargetAtTime(v, this.ctx.currentTime, 0.1);
-    if (this.trackBus && this._trackSrc) this.trackBus.gain.setTargetAtTime(v, this.ctx.currentTime, 0.1);
+    if (this.musicBus && this._playing)
+      this.musicBus.gain.setTargetAtTime(v * AMBIENCE_MIX, this.ctx.currentTime, 0.1);
+    if (this.trackBus && this._trackSrc)
+      this.trackBus.gain.setTargetAtTime(v * TRACK_MIX, this.ctx.currentTime, 0.1);
   }
 
   // ---------------------------------------------------------------- samples
@@ -374,7 +382,7 @@ export class AudioEngine {
     const t = this.ctx.currentTime;
     this.trackBus.gain.cancelScheduledValues(t);
     this.trackBus.gain.setValueAtTime(Math.max(0.0001, this.trackBus.gain.value), t);
-    this.trackBus.gain.linearRampToValueAtTime(this.musicVol, t + fade);
+    this.trackBus.gain.linearRampToValueAtTime(this.musicVol * TRACK_MIX, t + fade);
     src.start();
     this._trackSrc = src;
     this._trackName = name;
@@ -731,7 +739,7 @@ export class AudioEngine {
       f0: f * rand(1.05, 1.3),
       toF0: f * rand(0.6, 0.8),         // never settles
       dur: rand(0.7, 1.15) * scale,
-      gain: 0.052 * rand(0.8, 1.15),
+      gain: 0.082 * rand(0.8, 1.15),
       attack: rand(0.09, 0.22) * scale,
       breath: rand(0.35, 0.8),
       rasp: Math.random() < 0.45 ? rand(0.3, 0.9) : 0,
@@ -755,7 +763,7 @@ export class AudioEngine {
       f0: f,
       toF0: f * rand(2.0, 2.9),          // climbs and is cut off, never lands
       dur: rand(0.55, 0.75),
-      gain: 0.115,
+      gain: 0.145,
       attack: 0.035,
       breath: 0.85,
       rasp: rand(0.5, 1),
@@ -779,14 +787,14 @@ export class AudioEngine {
   spit() {
     if (this._throttle('spit', 90)) return;
     this._formantVoice({
-      f0: rand(95, 140), toF0: rand(60, 85), dur: 0.13, gain: 0.06, attack: 0.012,
+      f0: rand(95, 140), toF0: rand(60, 85), dur: 0.13, gain: 0.085, attack: 0.012,
       breath: 0.9, rasp: 0.8, q: 5,
       vowel: [rand(380, 520), rand(950, 1250), 2300],
       toVowel: [rand(280, 360), rand(800, 1000), 2200],
       wobble: 22, wobbleDepth: 0.6,
     });
-    this._noiseHit({ dur: 0.17, gain: 0.075, freq: 800, sweepTo: 200, q: 1.6, type: 'lowpass', delay: 0.05 });
-    this._noiseHit({ dur: 0.09, gain: 0.035, freq: rand(1600, 2400), sweepTo: 500, q: 2.2, delay: 0.06 });
+    this._noiseHit({ dur: 0.17, gain: 0.095, freq: 800, sweepTo: 200, q: 1.6, type: 'lowpass', delay: 0.05 });
+    this._noiseHit({ dur: 0.09, gain: 0.045, freq: rand(1600, 2400), sweepTo: 500, q: 2.2, delay: 0.06 });
   }
 
   /**
@@ -1031,17 +1039,17 @@ export class AudioEngine {
 
   runnerCharge() {
     if (this._throttle('runnerCharge', 160)) return;
-    this._formantVoice({ f0: 125, toF0: 220, dur: 0.28, gain: 0.07,
+    this._formantVoice({ f0: 125, toF0: 220, dur: 0.28, gain: 0.095,
       attack: 0.02, breath: 0.8, rasp: 0.45, q: 8, wobble: 14 });
-    this._noiseHit({ dur: 0.18, gain: 0.05, freq: 420, sweepTo: 1800,
+    this._noiseHit({ dur: 0.18, gain: 0.065, freq: 420, sweepTo: 1800,
       q: 1.3, type: 'bandpass', delay: 0.1 });
   }
 
   lurkerLunge() {
     if (this._throttle('lurkerLunge', 180)) return;
-    this._formantVoice({ f0: 78, toF0: 42, dur: 0.48, gain: 0.10,
+    this._formantVoice({ f0: 78, toF0: 42, dur: 0.48, gain: 0.14,
       attack: 0.05, breath: 0.7, rasp: 0.8, sub: 0.7, q: 5 });
-    this._noiseHit({ dur: 0.26, gain: 0.075, freq: 260, sweepTo: 2100,
+    this._noiseHit({ dur: 0.26, gain: 0.10, freq: 260, sweepTo: 2100,
       q: 1, type: 'bandpass', attack: 0.09 });
   }
 
@@ -1158,7 +1166,8 @@ export class AudioEngine {
     this.musicBus.gain.cancelScheduledValues(t);
     this.musicBus.gain.setValueAtTime(0.0001, t);
     // Slower than the old 1.6s fade: ambience should arrive without an entrance.
-    this.musicBus.gain.exponentialRampToValueAtTime(Math.max(0.0002, this.musicVol), t + 4.0);
+    this.musicBus.gain.exponentialRampToValueAtTime(
+      Math.max(0.0002, this.musicVol * AMBIENCE_MIX), t + 4.0);
     // The composed run track already supplies the bed. On phones, keep only the sparse
     // dogs, crows, creaks and distant bodies instead of running the full wind/drone graph
     // underneath it; the event scheduler below still responds to combat intensity.

@@ -1,7 +1,7 @@
 {
-  "name": "Nightfall Village",
+  "name": "Nightfall City",
   "short_name": "Nightfall",
-  "description": "Survive a village trapped in a repeating night and uncover the signal controlling the loop.",
+  "description": "Survive a city trapped in a repeating night and uncover the signal controlling the loop.",
   "id": "/nightfall-village/",
   "start_url": ".",
   "scope": ".",
@@ -24,7 +24,7 @@
     {
       "name": "Continue the Night",
       "short_name": "Story",
-      "description": "Continue Holt's story in the repeating village",
+      "description": "Continue Holt's story in the repeating city",
       "url": "./?mode=story",
       "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
     },

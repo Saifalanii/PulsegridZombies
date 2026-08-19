@@ -12,7 +12,7 @@ export const CORES = {
     name: 'HOLT',
     role: 'Machete',
     blurb: 'Fast, close, and built for making space.',
-    long: 'Ran the hardware counter before. Knows every fence line and every back gate in this village, which is the only reason he is still standing in it.',
+    long: 'Ran the hardware counter before. Knows every fence line and every back gate in this city, which is the only reason he is still standing in it.',
     eyeStyle: 'calm',
     sides: 3,
     rgb: [186, 214, 235],
@@ -25,7 +25,7 @@ export const CORES = {
     name: 'HOLT',
     role: 'Hunting Bow',
     blurb: 'Slow draw, long reach, and room to line them up.',
-    long: 'Ran the hardware counter before. Knows every fence line and every back gate in this village, which is the only reason he is still standing in it.',
+    long: 'Ran the hardware counter before. Knows every fence line and every back gate in this city, which is the only reason he is still standing in it.',
     eyeStyle: 'calm',
     sides: 3,
     rgb: [186, 214, 235],
@@ -38,7 +38,7 @@ export const CORES = {
     name: 'HOLT',
     role: 'Fire Axe',
     blurb: 'Slow, wide, and made for a crowded doorway.',
-    long: 'Ran the hardware counter before. Knows every fence line and every back gate in this village, which is the only reason he is still standing in it.',
+    long: 'Ran the hardware counter before. Knows every fence line and every back gate in this city, which is the only reason he is still standing in it.',
     eyeStyle: 'calm',
     sides: 3,
     rgb: [186, 214, 235],
@@ -77,7 +77,7 @@ export const RIVAL = {
  */
 export const STAKES = {
   title: 'THE LOOP',
-  line: 'Whenever Holt falls, the village rolls back to dusk. The dead return exactly as they were.',
+  line: 'Whenever Holt falls, the city rolls back to dusk. The dead return exactly as they were.',
   line2: 'The Band is still transmitting through every reset. Holt keeps his memory, and anything carried back into the Safehouse.',
   signoff: 'Find the source of the signal. Break the loop.',
 };

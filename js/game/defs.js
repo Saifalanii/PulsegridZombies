@@ -102,9 +102,12 @@ export const ENEMIES = {
     name: 'Spitter', sheet: 'plague', scale: 1.06, filter: 'hue-rotate(-25deg) saturate(1.3)',
     r: 16, hp: 52, speed: 26, dmg: 11,
     xp: 4, score: 44, behavior: 'standoff', weight: 26, minTime: 130,
-    standoffRange: 320, shootEvery: 1.7, burst: 3, bulletSpeed: 250, bulletDmg: 11,
+    // Bile is a short denial attack, not a sniper round. At 210 world units it crosses
+    // a little over three authored map cells and expires before leaving the encounter.
+    standoffRange: 185, shootEvery: 2.35, burst: 2,
+    bulletSpeed: 220, bulletRange: 210, bulletDmg: 8,
     atk: { range: 44, windup: 0.5, recover: 0.35, cool: 0.6, clip: 'thrust', reach: 56 },
-    desc: 'Hangs back and vomits bile in arcs.',
+    desc: 'Keeps a short distance and vomits bile a few steps ahead.',
   },
 
   // --- swarm ---
